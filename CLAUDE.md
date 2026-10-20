@@ -69,7 +69,7 @@ projects:
     bullets: [ {id, text, tags, priority} ]
 ```
 
-Tags in use: `leadership, mentorship, ui, game-ai, generative-ai, multiplayer, vr, unreal, unity, consoles, tools, shipped, systems, gameplay, performance, process, pipeline, product, mobile, narrative, web, live-service`. Add new ones freely, but reuse existing ones when they fit.
+Tags in use: `leadership, mentorship, ui, game-ai, generative-ai, multiplayer, vr, unreal, unity, consoles, tools, shipped, systems, gameplay, performance, process, pipeline, product, mobile, narrative, web, live-service, collaboration, quests, dynamic-events, playtesting, analytics`. Add new ones freely, but reuse existing ones when they fit.
 
 ## tailor.yaml schema
 
