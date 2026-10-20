@@ -1,0 +1,19 @@
+# Personal data: never commit
+/Local/
+/data/
+/applications/
+
+# Build output
+build/
+*.pdf
+!examples/**/*.pdf
+
+# Python / editor
+__pycache__/
+*.pyc
+.venv/
+.vscode/
+.DS_Store
+
+# Personal Claude rules
+/CLAUDE.local.md
