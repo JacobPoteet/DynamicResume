@@ -1,0 +1,94 @@
+# Fictional demo data. Build it with: python build.py --example build master
+# Your real data goes in data/master.yaml (gitignored). Schema: see CLAUDE.md.
+
+basics:
+  name: Alex Example
+  email: alex@example.com
+  phone: "(555) 010-0199"
+  location: Springfield, USA
+  linkedin: linkedin.com/in/alex-example
+
+games:
+  - id: robo-racers
+    name: Robo Racers
+    start: 2022-01
+    end: present
+  - id: dungeon-delvers
+    name: Dungeon Delvers
+    start: 2019-06
+    end: 2021-12
+
+positions:
+  - id: pixel-forge-sr
+    company: Pixel Forge Studios
+    product: Robo Racers (mobile racing game)
+    engine: Unity
+    game: robo-racers
+    title: Senior Gameplay Designer
+    location: Springfield, USA
+    start: 2022-01
+    end: present
+    bullets:
+      - id: rr-lead
+        text: Led design for the ranked multiplayer mode from prototype through launch
+        tags: [leadership, multiplayer, unity]
+        priority: 1
+      - id: rr-tools
+        text: Built an in-editor track tuning tool in C# used by the whole design team
+        tags: [tools, unity]
+        priority: 1
+      - id: rr-bots
+        text: Designed the opponent AI difficulty tiers
+        tags: [game-ai, unity]
+        priority: 2
+      - id: rr-mentor
+        text: Mentored two junior designers through their first shipped features
+        tags: [mentorship, leadership]
+        priority: 3
+
+  - id: dd-designer
+    company: Lantern Games
+    product: Dungeon Delvers (PC and console)
+    engine: Unreal Engine 4
+    game: dungeon-delvers
+    title: Gameplay Designer
+    location: Shelbyville, USA
+    start: 2019-06
+    end: 2021-12
+    bullets:
+      - id: dd-enemies
+        text: Owned the design and scripting of six enemy types in Blueprints
+        tags: [game-ai, unreal]
+        priority: 1
+      - id: dd-console
+        text: Tuned controller feel and performance on console development kits
+        tags: [consoles, unreal]
+        priority: 2
+      - id: dd-ui
+        text: Prototyped the inventory screen and handed it to the UI team
+        tags: [ui, unreal]
+        priority: 3
+
+skills:
+  - group: Software
+    items: [Unreal Engine 4/5, Unity, C#, C++, Perforce]
+  - group: Platforms
+    items: [PC, PS5, iOS/Android]
+
+education:
+  - school: Example State University
+    credential: "B.S. Computer Science"
+    location: Springfield, USA
+    start: 2015-08
+    end: 2019-05
+
+projects:
+  - id: sample-project
+    name: Sample Side Project
+    url: example.com/side-project
+    summary: A small puzzle game built in a weekend.
+    bullets:
+      - id: sp-shipped
+        text: Released to itch.io and used for playtesting new puzzle ideas
+        tags: [shipped]
+        priority: 2
