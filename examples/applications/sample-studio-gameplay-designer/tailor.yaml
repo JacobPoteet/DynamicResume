@@ -1,0 +1,21 @@
+target:
+  studio: Sample Studio
+  role: Gameplay Designer
+
+summary: Gameplay designer with shipped mobile and console titles, focused on enemy behavior and design tooling.
+
+positions:
+  pixel-forge-sr:
+    bullets: [rr-tools, rr-bots, rr-lead]
+  dd-designer:
+    bullets: [dd-enemies, dd-console]
+
+skills_first: [Unreal Engine 4/5, C#]
+projects: [sample-project]
+
+# Reword a bullet for this listing without touching the master:
+overrides:
+  rr-bots: Designed the opponent AI difficulty tiers and tuned them from playtest data
+
+cover_letter:
+  greeting: Dear Sample Studio team,
