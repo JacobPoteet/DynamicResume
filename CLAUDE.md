@@ -22,7 +22,7 @@ Needs `typst` (`winget install Typst.Typst`) and `pip install -r requirements.tx
 1. Create `applications/<studio>-<role>/` (lowercase, hyphens).
 2. Save the listing as `listing.md`.
 3. Read `data/master.yaml`. Pick bullets by tag match against the listing, then priority (1 = strongest). Order bullets within each position by relevance to the listing, not by priority alone.
-4. Write `tailor.yaml`: ordered bullet ids per position, `skills_first`, optional `summary`, optional `overrides`. Copy an existing application's file as the starting point.
+4. Write `tailor.yaml`: ordered bullet ids per position, `skills_first`, optional `overrides`. Copy an existing application's file as the starting point.
 5. Reword with `overrides` only where it helps match the listing's language. Never edit the master for one application.
 6. Write `cover-letter.md`: paragraphs separated by blank lines. Set greeting and closing in `tailor.yaml` under `cover_letter`.
 7. Run `python build.py build <folder>`. Confirm the output says 1 page for both PDFs. If over, cut lowest-priority bullets or skill groups; do not shrink fonts.
@@ -75,7 +75,7 @@ Tags in use: `leadership, mentorship, ui, game-ai, generative-ai, multiplayer, v
 
 ```yaml
 target: {studio: ..., role: ...}              # studio is used in output file names
-summary: optional one line under the header
+template: resume | resume-games | resume-inline   # optional, default resume
 games: [game ids]                             # optional, default all
 positions:                                    # only listed positions appear
   <position id>:
@@ -92,5 +92,6 @@ An unknown id is a build error. An override that matches no selected bullet is a
 ## Files
 
 - `build.py`: merge, lint, compile, page count (via a `<pagecount>` metadata label in each template).
+- `templates/timeline.typ` (shared), `resume-games.typ`, `resume-inline.typ`: resumes grouped by company, so several roles at one company sit under one heading. `resume-games` has a Games section; `resume-inline` puts each game on its role line. Pick one with `template:` in `tailor.yaml`, or `python build.py build <app> --template resume-inline` (output gets the template name as a suffix). No template has a summary.
 - `templates/common.typ`: shared header band, fonts, page setup. `resume.typ`, `cover-letter.typ` read `sys.inputs.data` (resolved JSON in `build/`).
 - Keep resumes ATS friendly: single column, real text, no icons, standard section names.

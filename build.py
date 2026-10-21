@@ -54,6 +54,24 @@ def date_range(start, end):
     return f"{fmt_date(start)} {EN_DASH} {fmt_date(end)}"
 
 
+def short_date(d):
+    s = str(d)
+    if s.lower() == "present":
+        return "Present"
+    m = re.match(r"^(\d{4})-(\d{1,2})", s)
+    if not m:
+        return s
+    return f"{calendar.month_abbr[int(m.group(2))]} {m.group(1)}"
+
+
+def short_range(start, end):
+    return f"{short_date(start)} {EN_DASH} {short_date(end)}"
+
+
+def year_range(start, end):
+    return f"{str(start)[:4]} {EN_DASH} {'Present' if str(end).lower() == 'present' else str(end)[:4]}"
+
+
 def slug(s):
     return re.sub(r"[^A-Za-z0-9]+", "_", s).strip("_")
 
@@ -107,7 +125,6 @@ def resolve(master, tailor, master_mode):
         skills_first = []
         overrides = {}
         project_sel = {p["id"]: None for p in master.get("projects", [])}
-        summary = None
     else:
         game_ids = tailor.get("games") or list(games_by_id)
         pos_sel = {k: (v or {}).get("bullets", []) for k, v in (tailor.get("positions") or {}).items()}
@@ -116,7 +133,6 @@ def resolve(master, tailor, master_mode):
         overrides = tailor.get("overrides") or {}
         raw = tailor.get("projects") or []
         project_sel = {k: None for k in raw} if isinstance(raw, list) else {k: (v or {}).get("bullets") for k, v in raw.items()}
-        summary = tailor.get("summary")
 
     used_overrides = set()
     all_pos = {p["id"]: p for p in master["positions"]}
@@ -147,16 +163,39 @@ def resolve(master, tailor, master_mode):
             continue
         positions.append({
             "id": p["id"], "heading": pos_heading(p), "title": p["title"],
+            "company": p["company"], "engine": p.get("engine", ""),
+            "game": games_by_id.get(p.get("game"), {}).get("name", p.get("product", "")),
             "location": p.get("location", ""), "dates": date_range(p["start"], p["end"]),
+            "dates_short": short_range(p["start"], p["end"]),
+            "start": str(p["start"]), "end": str(p["end"]),
             "bullets": pick(p.get("bullets", []), pos_sel[p["id"]], f"position {p['id']}"),
         })
+
+    # Consecutive positions at one company become a single group with a shared span.
+    groups = []
+    for pos in positions:
+        if groups and groups[-1]["company"] == pos["company"]:
+            groups[-1]["roles"].append(pos)
+        else:
+            groups.append({"company": pos["company"], "location": pos["location"], "roles": [pos]})
+    for g in groups:
+        g["dates_short"] = short_range(g["roles"][-1]["start"], g["roles"][0]["end"])
+
+    engine_by_game = {}
+    for p in master["positions"]:
+        if p.get("game") and p.get("engine"):
+            engine_by_game.setdefault(p["game"], (p["engine"], p["company"]))
 
     games = []
     for gid in game_ids:
         if gid not in games_by_id:
             sys.exit(f"ERROR: unknown game id '{gid}' in tailor.yaml")
         g = games_by_id[gid]
-        games.append({"name": g["name"], "dates": date_range(g["start"], g["end"])})
+        engine, company = engine_by_game.get(gid, ("", ""))
+        games.append({
+            "name": g["name"], "dates": date_range(g["start"], g["end"]),
+            "dates_short": short_range(g["start"], g["end"]), "engine": engine, "company": company,
+        })
 
     skills = []
     for g in master.get("skills", []):
@@ -174,6 +213,7 @@ def resolve(master, tailor, master_mode):
     education = [{
         "school": e["school"], "credential": e.get("credential", ""),
         "location": e.get("location", ""), "dates": date_range(e["start"], e["end"]),
+        "years": year_range(e["start"], e["end"]),
     } for e in master.get("education", [])]
 
     projects = []
@@ -191,8 +231,8 @@ def resolve(master, tailor, master_mode):
             warn(f"override '{k}' does not match any selected bullet")
 
     return {
-        "basics": master["basics"], "summary": summary, "games": games,
-        "positions": positions, "skills": skills, "education": education,
+        "basics": master["basics"], "games": games,
+        "positions": positions, "groups": groups, "skills": skills, "education": education,
         "projects": projects, "meta": master_mode,
     }
 
@@ -242,7 +282,15 @@ def build_master(typst, example):
     print(f"OK: {out.relative_to(ROOT)} ({pages} pages)")
 
 
-def build_app(typst, app_arg, example):
+def pick_template(tailor, override):
+    name = override or tailor.get("template") or "resume"
+    if not (ROOT / "templates" / f"{name}.typ").exists():
+        avail = sorted(p.stem for p in (ROOT / "templates").glob("resume*.typ"))
+        sys.exit(f"ERROR: no template '{name}'. Available: {', '.join(avail)}")
+    return name
+
+
+def build_app(typst, app_arg, example, template=None):
     master_path, apps_dir = workspace(example)
     app = Path(app_arg)
     if not app.is_dir():
@@ -261,8 +309,10 @@ def build_app(typst, app_arg, example):
     data = resolve(master, tailor, False)
     for s in walk_strings(data):
         lint(s, "resume")
-    out = app / f"{name}_Resume_{studio}.pdf"
-    pages = compile_pdf(typst, "resume.typ", data, out, work, "resume")
+    tpl = pick_template(tailor, template)
+    suffix = f"_{tpl}" if template else ""
+    out = app / f"{name}_Resume_{studio}{suffix}.pdf"
+    pages = compile_pdf(typst, f"{tpl}.typ", data, out, work, f"resume{suffix}")
     if pages and pages > 1:
         warn(f"RESUME IS {pages} PAGES. Trim bullets or skills in tailor.yaml.")
     print(f"  resume: {out.name} ({pages} page{'s' if pages != 1 else ''})")
@@ -294,6 +344,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build", help="build one application folder, or 'master'")
     b.add_argument("target")
+    b.add_argument("--template", help="resume template to use (e.g. resume-games); output gets the name as a suffix")
     sub.add_parser("build-all", help="build every application")
     args = ap.parse_args()
     typst = find_typst()
@@ -302,7 +353,7 @@ def main():
         if args.target == "master":
             build_master(typst, args.example)
         else:
-            build_app(typst, args.target, args.example)
+            build_app(typst, args.target, args.example, args.template)
     else:
         _, apps_dir = workspace(args.example)
         folders = sorted(p for p in apps_dir.glob("*") if (p / "tailor.yaml").exists())

@@ -25,10 +25,6 @@
 #header(d.basics)
 #v(0.2em)
 
-#if d.at("summary", default: none) != none [
-  #d.summary
-]
-
 #if d.games.len() > 0 [
   #section("Games")
   #for g in d.games [
