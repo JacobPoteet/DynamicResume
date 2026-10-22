@@ -27,8 +27,24 @@ function toast(html, bad = false, ms = 4000) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (t.className = ""), ms);
 }
-const status = (text) => ($("#status").textContent = text);
+// Click a toast (outside its links) to dismiss it early.
+document.addEventListener("click", (e) => {
+  if (e.target.closest("#toast") && !e.target.closest("a")) $("#toast").className = "";
+});
+
+// Header save state. kind: dirty, busy, ok or bad (sets the colored dot).
+function status(text, kind = "") {
+  const el = $("#status");
+  el.textContent = text;
+  el.className = kind ? `st-${kind}` : "";
+}
 const view = (html) => ($("#view").innerHTML = html);
+
+// Per-browser UI preferences; storage can be unavailable, so never depend on it.
+const pref = {
+  get: (k, d) => { try { return localStorage.getItem(`dr-${k}`) ?? d; } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem(`dr-${k}`, v); } catch { /* ignore */ } },
+};
 
 function ago(ts) {
   const s = Date.now() / 1000 - ts;
@@ -179,11 +195,11 @@ async function showEditor(name, tab) {
   view(`<div class="editor">
     <div class="ebar">
       <a href="#/" class="btn ghost">← Applications</a>
-      <h1 id="e-title"></h1>
-      <nav class="tabs">${tabs.map(([k, l]) => `<a href="#/app/${enc(name)}/${k}" class="${k === tab ? "on" : ""}">${l}</a>`).join("")}</nav>
+      <h1 id="e-title" title=""></h1>
+      <nav class="tabs">${tabs.map(([k, l]) => `<a href="#/app/${enc(name)}/${k}" class="${k === tab ? "on" : ""}" ${k === tab ? `aria-current="page"` : ""}>${l}</a>`).join("")}</nav>
       <span class="grow"></span>
-      <label class="row muted" style="font-size:13px">Template
-        <select id="tpl">${S.init.templates.map((x) => `<option ${x === tpl ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
+      <label class="row muted" style="font-size:13px"><span class="tpl-word">Template</span>
+        <select id="tpl" aria-label="Resume template">${S.init.templates.map((x) => `<option ${x === tpl ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
       </label>
       <span id="pdf-state"></span>
       <button class="primary" id="finalize">Build PDFs</button>
@@ -198,14 +214,21 @@ async function showEditor(name, tab) {
   const kind = TABS[tab].preview;
   if (S.previews[kind]) renderPreview(kind);
   else {
-    $("#right").innerHTML = `<div class="empty">Rendering…</div>`;
+    $("#right").innerHTML = `<div class="pv-head">
+        <div class="fillline"><span class="pv-busy"><span class="spinner"></span>Rendering the preview</span></div>
+        <div class="meter"></div>
+      </div>
+      <div class="pages ${fitClass()}"><div class="sheet ghost"></div></div>`;
+    setBusy(true);
+    fitSheets();
     refreshPreview(kind);
   }
 }
 
 function renderTitle() {
   const tg = S.app.tailor.target || {};
-  $("#e-title").textContent = [tg.studio, tg.role].filter(Boolean).join(" · ") || S.app.name;
+  const el = $("#e-title");
+  el.textContent = el.title = [tg.studio, tg.role].filter(Boolean).join(" · ") || S.app.name;
 }
 
 function pdfUrl(file) {
@@ -226,7 +249,7 @@ async function finalize() {
   const btn = $("#finalize");
   await Promise.all([saveNow(), saveLetter(), saveListing()]);
   btn.disabled = true;
-  btn.textContent = "Building…";
+  btn.innerHTML = `<span class="spinner"></span>Building…`;
   try {
     const r = await api("POST", `/api/apps/${enc(S.app.name)}/finalize`);
     S.app.pdfs = r.pdfs;
@@ -256,7 +279,7 @@ let savePending = false;
 
 function queueSave(delay = 300) {
   savePending = true;
-  status("Unsaved changes");
+  status("Unsaved changes", "dirty");
   clearTimeout(saveTimer);
   saveTimer = setTimeout(saveNow, delay);
 }
@@ -267,8 +290,8 @@ async function saveNow() {
   savePending = false;
   const seq = ++saveSeq;
   const name = S.app.name;
-  status("Saving…");
-  $(".pages")?.classList.add("busy");
+  status("Saving…", "busy");
+  setBusy(true);
   try {
     const r = await api("PUT", `/api/apps/${enc(name)}/tailor`, { tailor: cleanTailor(S.app.tailor) });
     S.versions = { ...S.versions, ...r.versions };
@@ -278,10 +301,11 @@ async function saveNow() {
     renderPdfState();
     if (TABS[S.tab]?.preview === "resume") renderPreview("resume");
     else refreshPreview(TABS[S.tab].preview);
-    status("Saved");
+    status("Saved", "ok");
   } catch (e) {
     toast(esc(e.message), true);
-    status("Save failed");
+    status("Save failed", "bad");
+    setBusy(false);
   }
 }
 
@@ -291,10 +315,40 @@ window.addEventListener("beforeunload", (e) => {
 
 // ---------- preview ----------
 
+const setBusy = (on) => $("#right")?.classList.toggle("busy", on);
+const fitClass = () => (pref.get("fit", "width") === "page" ? "fit-page" : "");
+
+// "Whole page" sizes each sheet to the height left under the sticky preview header.
+function fitSheets() {
+  const el = $("#right");
+  if (!el) return;
+  const head = $(".pv-head", el);
+  const h = el.clientHeight - (head ? head.offsetHeight : 0) - 34;
+  el.style.setProperty("--sheet-h", `${Math.max(h, 240)}px`);
+}
+window.addEventListener("resize", fitSheets);
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-pv]");
+  if (!b) return;
+  pref.set("fit", b.dataset.pv);
+  document.querySelectorAll("[data-pv]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  $(".pages")?.classList.toggle("fit-page", b.dataset.pv === "page");
+  fitSheets();
+});
+
+function fitControl() {
+  const page = pref.get("fit", "width") === "page";
+  return `<span class="seg" role="group" aria-label="Preview size">
+    <button data-pv="width" aria-pressed="${!page}" title="Scale the page to the pane width">Fit width</button>
+    <button data-pv="page" aria-pressed="${page}" title="Show the whole page at once">Whole page</button>
+  </span>`;
+}
+
 async function refreshPreview(kind) {
   if (!S.app) return;
   const name = S.app.name;
-  $(".pages")?.classList.add("busy");
+  setBusy(true);
   try {
     const p = await api("POST", `/api/apps/${enc(name)}/preview/${kind}`);
     if (!S.app || S.app.name !== name) return;
@@ -320,26 +374,34 @@ async function renderPreview(kind) {
   const f = p.fill || {};
   const over = f.pages > 1;
   const pct = f.fill == null ? 0 : Math.round(f.fill * 100);
-  const meter = over ? "over" : pct < 90 ? "room" : "";
+  const resume = kind === "resume";
+  // A resume should fill its one page (90% or more counts as full); a short letter is fine.
+  const full = pct >= 90 || !resume;
+  const meter = over ? "over" : pct >= 90 ? "" : "room";
   let line = `<span class="muted">No layout information</span>`;
   if (f.pages != null) {
+    const free = resume && f.lines_free != null ? `<span class="muted">about ${plural(f.lines_free, "line")} free</span>` : "";
     line = over
-      ? `<strong>${f.pages} pages</strong><span>runs ${pct}% into page ${f.pages}, trim to fit one page</span>`
-      : `<strong>1 page</strong><span>${pct}% full</span>${kind === "resume" ? `<span class="muted">about ${plural(f.lines_free, "line")} free</span>` : ""}`;
+      ? `<span class="pill bad">Over one page</span><span><strong>${f.pages} pages</strong>, page ${f.pages} is ${pct}% full. Cut to fit one page.</span>`
+      : `<span class="pill ${full ? "good" : ""}">${full ? "Fits one page" : "Room left"}</span><span>${pct}% full</span>${free}`;
   }
   const warnings = [
     ...(p.ok ? [] : [`<li class="err">${esc(p.error)}</li>`]),
     ...(p.warnings || []).map((w) => `<li>${esc(w)}</li>`),
   ].join("");
+  const label = f.pages == null ? "Page fill unknown" : over ? `${f.pages} pages` : `One page, ${pct}% full`;
   el.innerHTML = `
     <div class="pv-head">
-      <div class="fillline">${line}</div>
-      <div class="meter ${meter}"><i style="width:${over ? 100 : pct}%"></i></div>
+      <div class="fillline">${line}<span class="grow"></span>
+        <span class="pv-busy" role="status"><span class="spinner"></span>Updating</span>${fitControl()}</div>
+      <div class="meter ${meter}" role="img" aria-label="${label}"><i style="width:${over ? 100 : pct}%"></i>${resume && !over ? `<b style="left:90%" title="90%: counts as a full page"></b>` : ""}</div>
       ${warnings ? `<ul class="warnings">${warnings}</ul>` : ""}
     </div>
-    <div class="pages">${(p.pages || []).map((u, i) => `
-      <div class="sheet"><img src="${u}" alt="Page ${i + 1}">${i > 0 ? `<span class="pill bad lbl">Page ${i + 1}</span>` : ""}</div>`).join("")}
+    <div class="pages ${fitClass()}">${(p.pages || []).map((u, i) => `
+      <div class="sheet ${i > 0 ? "over" : ""}"><img src="${u}" alt="Page ${i + 1} of the ${resume ? "resume" : "cover letter"}">${i > 0 ? `<span class="pill bad lbl">Page ${i + 1}</span>` : ""}</div>`).join("")}
     </div>`;
+  setBusy(false);
+  fitSheets();
 }
 
 // ---------- resume tab ----------
@@ -399,10 +461,10 @@ function ownText(b) {
 
 function matchLabel(b) {
   const reqs = requirements().filter((r) => reqMatches(r, b));
-  if (reqs.length) return `fits: ${reqs.slice(0, 2).map((r) => r.text).join("; ")}${reqs.length > 2 ? ` +${reqs.length - 2}` : ""}`;
+  if (reqs.length) return `Fits: ${reqs.slice(0, 2).map((r) => r.text).join("; ")}${reqs.length > 2 ? ` +${reqs.length - 2}` : ""}`;
   if (requirements().length) return "";
   const s = bulletScore(b);
-  return s > 1 ? `${s} listing words` : "";
+  return s > 1 ? `Shares ${s} words with the listing` : "";
 }
 
 function allBullets() {
@@ -452,7 +514,7 @@ function renderResumeLeft() {
     </div>`;
   html += reqsBlock();
   if ((m.games || []).length) html += sec("Games", (t.template || S.init.default_template) === "resume-games" ? "" : "only resume-games shows this section") + gamesBlock();
-  html += sec("Experience", "drag selected bullets to reorder") + m.positions.map((p) => ownerBlock(p, "positions")).join("");
+  html += sec("Experience", "drag to reorder (Alt+Up/Down from the keyboard), double-click a bullet to edit") +m.positions.map((p) => ownerBlock(p, "positions")).join("");
   if ((m.projects || []).length) html += sec("Personal projects") + m.projects.map((p) => ownerBlock(p, "projects")).join("");
   html += sec("Skills", "click a skill to move it to the front of its line") + skillsBlock();
   left.innerHTML = html;
@@ -488,10 +550,10 @@ function ownerBlock(p, kind) {
   return `<div class="pos ${on ? "" : "off"}">
     <div class="phead">
       <input type="checkbox" data-act="owner" data-kind="${kind}" data-owner="${esc(p.id)}" ${on ? "checked" : ""}
-        title="${on ? "Leave this off the resume" : "Put this on the resume"}">
+        title="${on ? "Leave this off the resume" : "Put this on the resume"}" aria-label="Show ${esc(title)} on the resume">
       <div class="grow"><div class="ttl">${esc(title)}</div><div class="sub">${esc(sub)}</div></div>
-      <span class="faint" style="font-size:12px">${chosen.length}/${bullets.length}</span>
-      ${on ? "" : `<button class="ghost small" data-act="expand" data-owner="${esc(p.id)}">${open ? "Hide" : "Show"} bullets</button>`}
+      <span class="count" title="Bullets selected">${chosen.length} of ${bullets.length}</span>
+      ${on ? "" : `<button class="ghost small" data-act="expand" data-owner="${esc(p.id)}" aria-expanded="${!!open}">${open ? "Hide" : "Show"} bullets</button>`}
     </div>
     ${rows}
   </div>`;
@@ -519,17 +581,18 @@ function bulletRow(b, kind, owner, isSel) {
   const label = isSel ? "" : matchLabel(b);
   const reqHit = S.ui.focusReq != null && reqMatches(requirements()[S.ui.focusReq], b);
   return `<li class="b ${isSel ? "sel" : ""} ${reqHit ? "hl" : ""}" ${attrs} ${isSel ? `draggable="true"` : ""}>
-    <span class="grip" title="Drag to reorder">⠿</span>
-    <input type="checkbox" data-act="bullet" ${isSel ? "checked" : ""}>
+    <span class="grip" title="Drag to reorder, or focus the checkbox and press Alt+Up or Alt+Down" aria-hidden="true">⠿</span>
+    <input type="checkbox" data-act="bullet" ${isSel ? "checked" : ""}
+      aria-label="${isSel ? "On the resume" : "Add to the resume"}: ${esc(text)}"${isSel ? ` aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"` : ""}>
     <div class="body">
-      <div class="text">${esc(text)}</div>
+      <div class="text" title="Double-click to edit">${esc(text)}</div>
       <div class="meta">
         <code>${esc(b.id)}</code><span>p${b.priority ?? 3}</span><span>${esc((b.tags || []).join(", "))}</span>
-        ${ov != null ? `<span class="ov">edited for this application</span>` : ""}
+        ${ov != null ? `<span class="ov" title="Master text: ${esc(b.text)}">Edited for this application</span>` : ""}
         ${label ? `<span class="score">${esc(label)}</span>` : ""}
       </div>
     </div>
-    <span class="acts"><button class="ghost small" data-act="edit" title="Edit text">Edit</button></span>
+    <span class="acts"><button class="ghost small" data-act="edit" aria-label="Edit bullet text">Edit</button></span>
   </li>`;
 }
 
@@ -556,16 +619,15 @@ function skillsBlock() {
   return `<div class="pos skills">${ordered.map((g) => {
     const on = chosen.includes(g);
     const i = chosen.indexOf(g);
-    return `<div class="grp">
+    return `<div class="grp ${on ? "" : "off"}">
       <div class="row">
-        <input type="checkbox" data-act="sg" data-g="${esc(g)}" ${on ? "checked" : ""}>
-        <strong class="grow" style="${on ? "" : "color:var(--muted)"}">${esc(g)}</strong>
-        ${on ? `<button class="ghost small" data-act="sg-up" data-g="${esc(g)}" ${i === 0 ? "disabled" : ""} title="Move up">↑</button>
-                <button class="ghost small" data-act="sg-down" data-g="${esc(g)}" ${i === chosen.length - 1 ? "disabled" : ""} title="Move down">↓</button>` : ""}
+        <label class="grow"><input type="checkbox" data-act="sg" data-g="${esc(g)}" ${on ? "checked" : ""}><strong>${esc(g)}</strong></label>
+        ${on ? `<button class="ghost small" data-act="sg-up" data-g="${esc(g)}" ${i === 0 ? "disabled" : ""} title="Move up" aria-label="Move ${esc(g)} up">↑</button>
+                <button class="ghost small" data-act="sg-down" data-g="${esc(g)}" ${i === chosen.length - 1 ? "disabled" : ""} title="Move down" aria-label="Move ${esc(g)} down">↓</button>` : ""}
       </div>
       ${on ? `<div class="items">${byGroup[g].map((it) => {
         const n = first.indexOf(it);
-        return `<button class="skill ${n >= 0 ? "first" : ""}" data-act="skill" data-item="${esc(it)}">${n >= 0 ? `${n + 1}. ` : ""}${esc(it)}</button>`;
+        return `<button class="skill ${n >= 0 ? "first" : ""}" data-act="skill" data-item="${esc(it)}" aria-pressed="${n >= 0}">${n >= 0 ? `${n + 1}. ` : ""}${esc(it)}</button>`;
       }).join("")}</div>` : ""}
     </div>`;
   }).join("")}</div>`;
@@ -600,8 +662,24 @@ function setOwner(kind, owner, on) {
   }
 }
 
-function changed() {
+// Re-rendering replaces the left pane, so put keyboard focus back on the same control.
+function focusKey(el) {
+  if (!el?.closest?.("#left") || !el.dataset?.act) return null;
+  return { act: el.dataset.act, id: el.closest(".b")?.dataset.id, owner: el.dataset.owner, g: el.dataset.g, item: el.dataset.item, i: el.dataset.i };
+}
+function restoreFocus(k) {
+  if (!k || document.activeElement?.matches?.("textarea[data-edit]")) return;
+  const same = (x) => x.closest(".b")?.dataset.id === k.id && x.dataset.owner === k.owner &&
+    x.dataset.g === k.g && x.dataset.item === k.item && x.dataset.i === k.i;
+  [...document.querySelectorAll(`#left [data-act="${k.act}"]`)].find(same)?.focus();
+}
+function rerenderLeft(k = focusKey(document.activeElement)) {
   TABS[S.tab].left();
+  restoreFocus(k);
+}
+
+function changed(k) {
+  rerenderLeft(k);
   queueSave();
 }
 
@@ -653,12 +731,13 @@ document.addEventListener("click", async (e) => {
   const t = S.app.tailor;
   const act = el.dataset.act;
   const li = el.closest(".b");
+  const backToRow = li && { act: "edit", id: li.dataset.id };
   if (act === "edit") {
     S.ui.editing = li.dataset.id;
     TABS[S.tab].left();
   } else if (act === "edit-cancel") {
     S.ui.editing = null;
-    TABS[S.tab].left();
+    rerenderLeft(backToRow);
   } else if (act === "ov-save" || act === "ov-drop") {
     const b = findBullet(li.dataset.kind, li.dataset.owner, li.dataset.id);
     const text = act === "ov-drop" ? b.text : li.querySelector("textarea").value.replace(/\s+/g, " ").trim();
@@ -667,7 +746,7 @@ document.addEventListener("click", async (e) => {
     else t.overrides[b.id] = text;
     setBulletSelected(li.dataset.kind, li.dataset.owner, b.id, true);
     S.ui.editing = null;
-    changed();
+    changed(backToRow);
   } else if (act === "master-save") {
     const b = findBullet(li.dataset.kind, li.dataset.owner, li.dataset.id);
     const text = li.querySelector("textarea").value.replace(/\s+/g, " ").trim();
@@ -684,14 +763,14 @@ document.addEventListener("click", async (e) => {
       S.ui.editing = null;
       const others = (S.usage[b.id] || []).filter((n) => n !== S.app.name);
       toast(`Saved to master.${others.length ? ` Also used by ${others.map(esc).join(", ")}.` : ""}`);
-      changed();
+      changed(backToRow);
     } catch (err) {
       b.text = before;
       toast(esc(err.message), true);
     }
   } else if (act === "expand") {
     S.ui.expanded[el.dataset.owner] = !S.ui.expanded[el.dataset.owner];
-    TABS[S.tab].left();
+    rerenderLeft();
   } else if (act === "skill") {
     const list = (t.skills_first = t.skills_first || []);
     const i = list.indexOf(el.dataset.item);
@@ -712,9 +791,27 @@ document.addEventListener("click", async (e) => {
 const CLICK_ACTIONS = {};
 
 document.addEventListener("keydown", (e) => {
+  // Alt+Up/Down on a selected bullet's checkbox moves it, the keyboard version of dragging.
+  if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && e.target.matches?.(".b.sel input[data-act=bullet]")) {
+    e.preventDefault();
+    const li = e.target.closest(".b");
+    const list = S.app.tailor[li.dataset.kind][li.dataset.owner].bullets;
+    const i = list.indexOf(li.dataset.id);
+    const j = e.key === "ArrowUp" ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    return changed();
+  }
   if (!e.target.matches("textarea[data-edit]")) return;
   if (e.key === "Escape") $("[data-act=edit-cancel]")?.click();
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("[data-act=ov-save]")?.click();
+});
+
+document.addEventListener("dblclick", (e) => {
+  const li = e.target.closest(".b");
+  if (!S.app || !li || !e.target.closest(".text") || !li.closest("#left") || S.ui.editing) return;
+  S.ui.editing = li.dataset.id;
+  TABS[S.tab].left();
 });
 
 // ----- drag to reorder selected bullets within one position -----
@@ -798,7 +895,7 @@ document.addEventListener("input", (e) => {
   S.app.letter = e.target.value;
   countLetter();
   letterPending = true;
-  status("Unsaved changes");
+  status("Unsaved changes", "dirty");
   clearTimeout(letterTimer);
   letterTimer = setTimeout(saveLetter, 600);
 });
@@ -808,7 +905,8 @@ async function saveLetter() {
   if (!letterPending || !S.app) return;
   letterPending = false;
   const name = S.app.name;
-  $(".pages")?.classList.add("busy");
+  status("Saving…", "busy");
+  setBusy(true);
   try {
     const r = await api("PUT", `/api/apps/${enc(name)}/letter`, { text: S.app.letter });
     S.versions = { ...S.versions, ...r.versions };
@@ -817,9 +915,11 @@ async function saveLetter() {
     if (S.app.pdfs.letter.exists) S.app.pdfs.letter.stale = true;
     renderPdfState();
     if (S.tab === "letter") renderPreview("letter");
-    status("Saved");
+    status("Saved", "ok");
   } catch (e) {
     toast(esc(e.message), true);
+    status("Save failed", "bad");
+    setBusy(false);
   }
 }
 
@@ -855,10 +955,10 @@ function renderListingLeft() {
       <div class="bd">
         ${reqs.length ? `<div class="req-row faint" style="font-size:11px"><span title="Required">Req.</span><span>Requirement</span><span>Tags</span><span></span></div>` : ""}
         ${reqs.map((r, i) => `<div class="req-row" data-i="${i}">
-          <input type="checkbox" data-req="must" ${r.must ? "checked" : ""} title="Required (unticked = nice to have)">
-          <input type="text" data-req="text" value="${esc(r.text)}">
-          <input type="text" data-req="tags" value="${esc((r.tags || []).join(", "))}" placeholder="tags">
-          <button class="ghost small" data-act="req-del" title="Remove">✕</button>
+          <input type="checkbox" data-req="must" ${r.must ? "checked" : ""} title="Required (unticked = nice to have)" aria-label="Required">
+          <input type="text" data-req="text" value="${esc(r.text)}" aria-label="Requirement">
+          <input type="text" data-req="tags" value="${esc((r.tags || []).join(", "))}" placeholder="tags" aria-label="Tags">
+          <button class="ghost small" data-act="req-del" title="Remove" aria-label="Remove this requirement">✕</button>
         </div>`).join("")}
         <div class="row" style="margin-top:8px"><button class="small" data-act="req-add">Add requirement</button>
           ${reqs.length ? "" : `<span class="muted" style="font-size:12px">None yet. Drafting with Claude fills these in from the listing.</span>`}</div>
@@ -914,7 +1014,7 @@ let listingTimer = null;
 const listingDirty = new Set();
 function queueListingSave(what) {
   listingDirty.add(what);
-  status("Unsaved changes");
+  status("Unsaved changes", "dirty");
   clearTimeout(listingTimer);
   listingTimer = setTimeout(saveListing, 600);
 }
@@ -925,12 +1025,14 @@ async function saveListing() {
   if (listingDirty.has("text")) body.text = S.app.listing;
   if (listingDirty.has("spec")) body.spec = S.app.listing_spec;
   listingDirty.clear();
+  status("Saving…", "busy");
   try {
     const r = await api("PUT", `/api/apps/${enc(S.app.name)}/listing`, body);
     S.versions = { ...S.versions, ...r.versions };
-    status("Saved");
+    status("Saved", "ok");
   } catch (e) {
     toast(esc(e.message), true);
+    status("Save failed", "bad");
   }
 }
 
@@ -952,7 +1054,7 @@ function renderDraftBox() {
   let html = `<p class="muted" style="margin:0;font-size:13px">Claude Code reads the master and this listing with read-only access, picks and orders bullets,
     rewords a few where it helps, writes a cover letter, and lists anything the master cannot back up. It follows CLAUDE.md and your local rules.
     ${redraft ? " Redrafting replaces the current bullet choices, overrides and cover letter; a snapshot is taken first." : ""}</p>`;
-  if (running) html = `<div class="row"><span class="pill">Drafting… ${secs} s</span><span class="muted" style="font-size:12px">usually one to three minutes</span></div>`;
+  if (running) html = `<div class="row"><span class="pill row" style="gap:6px"><span class="spinner" style="width:9px;height:9px"></span>Drafting… ${secs} s</span><span class="muted" style="font-size:12px">usually one to three minutes</span></div>`;
   if (j.state === "error") html += `<p><span class="pill bad">Draft failed</span> ${esc(j.error)}</p>`;
   if (j.state === "done") html += `<p><span class="pill good">Draft written</span> ${j.result?.warnings?.length ? esc(j.result.warnings.join("; ")) : ""}</p>`;
   if (running || j.state === "error") html += `<div class="draft-log mono">${j.log.map(esc).join("\n")}</div>`;
@@ -1018,7 +1120,7 @@ ON_OUTSIDE_EDIT.blocked = () =>
 
 // Edits collect in M.draft and are written together with Save. The server merges them into
 // master.yaml without disturbing its comments, and keeps the previous file in master-history.
-const M = { base: null, draft: null, text: "", rawText: null, usage: {}, mode: "bullets", open: {}, saving: false };
+const M = { base: null, draft: null, text: "", rawText: null, usage: {}, mode: "bullets", open: {}, saving: false, error: "" };
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const masterDirty = () => !!M.draft && (JSON.stringify(M.draft) !== JSON.stringify(M.base) || (M.rawText != null && M.rawText !== M.text));
 
@@ -1052,7 +1154,7 @@ async function showMaster(mode = "bullets") {
     </div>
     <div class="savebar" id="savebar" hidden>
       <span id="save-msg">Unsaved changes</span><span class="grow"></span>
-      <button class="ghost" data-mact="discard">Discard</button><button class="primary" data-mact="save">Save master</button>
+      <button class="ghost" data-mact="discard">Discard</button><button class="primary" data-mact="save" title="Ctrl+S">Save master</button>
     </div>
   </div>`);
   renderMasterBody();
@@ -1069,10 +1171,32 @@ function renderMasterBody() {
   const tags = new Set();
   for (const o of [...M.draft.positions, ...(M.draft.projects || [])]) for (const b of o.bullets || []) (b.tags || []).forEach((t) => tags.add(t));
   body.innerHTML = `<datalist id="tag-list">${[...tags].sort().map((t) => `<option value="${esc(t)}">`).join("")}</datalist>
+    <nav class="jump" id="jump" aria-label="Jump to a section"></nav>
     ${M.draft.positions.map((o, i) => ownerCard("positions", o, i)).join("")}
     ${(M.draft.projects || []).map((o, i) => ownerCard("projects", o, i)).join("")}
     ${skillsCard()}`;
   updateSavebar();
+}
+
+// Bullets keyed by id, as JSON, for spotting which rows differ from the saved file.
+function baseBullets() {
+  const out = {};
+  for (const o of [...M.base.positions, ...(M.base.projects || [])]) for (const b of o.bullets || []) out[b.id] = JSON.stringify(b);
+  return out;
+}
+const bulletDirty = (b, base = baseBullets()) => base[b.id] !== JSON.stringify(b);
+
+function renderJump() {
+  const nav = $("#jump");
+  if (!nav) return;
+  const companies = M.draft.positions.map((o) => o.company);
+  const ownerDirty = (kind, o, oi) => JSON.stringify(o) !== JSON.stringify((M.base[kind] || [])[oi]);
+  const btn = (target, label, dirty) => `<button class="${dirty ? "dirty" : ""}" data-mact="jump" data-target="${target}"${dirty ? ` title="Unsaved changes"` : ""}>${esc(label)}</button>`;
+  nav.innerHTML = `<span class="muted" style="font-size:12px">Jump to</span>
+    ${M.draft.positions.map((o, i) => btn(`m-positions-${i}`,
+      companies.filter((c) => c === o.company).length > 1 ? `${o.company} (${o.title})` : o.company, ownerDirty("positions", o, i))).join("")}
+    ${(M.draft.projects || []).map((o, i) => btn(`m-projects-${i}`, o.name, ownerDirty("projects", o, i))).join("")}
+    ${btn("m-skills", "Skills", JSON.stringify(M.draft.skills) !== JSON.stringify(M.base.skills))}`;
 }
 
 const OWNER_FIELDS = {
@@ -1085,15 +1209,16 @@ function ownerCard(kind, o, oi) {
   const head = kind === "positions" ? `${o.company} · ${o.title}` : `Project: ${o.name}`;
   const sub = kind === "positions" ? `${o.start} to ${o.end}${o.product ? ` · ${o.product}` : ""}` : o.url || "";
   const prefix = commonPrefix((o.bullets || []).map((b) => b.id));
-  return `<section class="card" data-kind="${kind}" data-oi="${oi}">
+  const base = baseBullets();
+  return `<section class="card" id="m-${kind}-${oi}" data-kind="${kind}" data-oi="${oi}">
     <div class="hd"><div class="grow"><strong>${esc(head)}</strong><div class="muted" style="font-size:12px">${esc(sub)}</div></div>
       <code class="faint">${esc(o.id)}</code>
-      <button class="ghost small" data-mact="details" data-key="${esc(key)}">${M.open[key] ? "Hide details" : "Details"}</button></div>
+      <button class="ghost small" data-mact="details" data-key="${esc(key)}" aria-expanded="${!!M.open[key]}">${M.open[key] ? "Hide details" : "Details"}</button></div>
     ${M.open[key] ? `<div class="bd target" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
       ${OWNER_FIELDS[kind].map((f) => `<label class="field">${f}<input data-of="${f}" value="${esc(o[f])}"></label>`).join("")}</div>` : ""}
     ${(o.bullets || []).map((b, bi) => {
       const used = M.usage[b.id] || [];
-      return `<div class="mb" data-bi="${bi}">
+      return `<div class="mb ${bulletDirty(b, base) ? "dirty" : ""}" data-bi="${bi}">
         <textarea data-bf="text" rows="2">${esc(b.text)}</textarea>
         <div class="row2">
           <code title="Bullet id, used by applications">${esc(b.id)}</code>
@@ -1101,7 +1226,7 @@ function ownerCard(kind, o, oi) {
           <select data-bf="priority" title="1 = strongest">${[1, 2, 3].map((p) => `<option value="${p}" ${(b.priority ?? 3) === p ? "selected" : ""}>p${p}</option>`).join("")}</select>
           <span class="row">
             <span class="pill ${used.length ? "" : "plain"}" title="${esc(used.join(", ") || "Not used by any application")}">${used.length ? `in ${plural(used.length, "app")}` : "unused"}</span>
-            <button class="ghost small danger" data-mact="del" title="Delete bullet">Delete</button>
+            <button class="ghost small danger" data-mact="del" aria-label="Delete bullet ${esc(b.id)}">Delete</button>
           </span>
         </div>
       </div>`;
@@ -1124,21 +1249,41 @@ function commonPrefix(ids) {
 }
 
 function skillsCard() {
-  return `<section class="card" data-skills>
+  return `<section class="card" id="m-skills" data-skills>
     <div class="hd"><strong class="grow">Skills</strong><span class="faint" style="font-size:12px">one line per group on the resume, comma separated</span></div>
     ${(M.draft.skills || []).map((g, gi) => `<div class="mb" data-gi="${gi}">
       <div class="row2" style="grid-template-columns:150px 1fr auto">
-        <input data-gf="group" value="${esc(g.group)}">
-        <input data-gf="items" value="${esc((g.items || []).join(", "))}">
-        <button class="ghost small danger" data-mact="del-group">Delete</button>
+        <input data-gf="group" value="${esc(g.group)}" aria-label="Group name">
+        <input data-gf="items" value="${esc((g.items || []).join(", "))}" aria-label="${esc(g.group)} skills, comma separated">
+        <button class="ghost small danger" data-mact="del-group" aria-label="Delete the ${esc(g.group)} group">Delete</button>
       </div></div>`).join("")}
     <div class="mb"><div class="row"><button class="small" data-mact="add-group">Add skill group</button></div></div>
   </section>`;
 }
 
+function masterSummary() {
+  if (M.mode === "raw") return "Unsaved changes to the YAML";
+  const base = baseBullets();
+  const seen = new Set();
+  let edited = 0;
+  let added = 0;
+  for (const o of [...M.draft.positions, ...(M.draft.projects || [])]) for (const b of o.bullets || []) {
+    seen.add(b.id);
+    if (!(b.id in base)) added++;
+    else if (base[b.id] !== JSON.stringify(b)) edited++;
+  }
+  const removed = Object.keys(base).filter((id) => !seen.has(id)).length;
+  const parts = [[edited, "edited"], [added, "added"], [removed, "deleted"]].filter(([n]) => n).map(([n, w]) => `${plural(n, "bullet")} ${w}`);
+  return parts.length ? `Unsaved changes: ${parts.join(", ")}` : "Unsaved changes";
+}
+
 function updateSavebar() {
   const bar = $("#savebar");
-  if (bar) bar.hidden = !masterDirty() && !M.saving;
+  if (!bar) return;
+  bar.hidden = !masterDirty() && !M.saving && !M.error;
+  renderJump();
+  if (M.saving) return;
+  $("#save-msg").innerHTML = M.error ? `<span class="pill bad">Not saved</span> ${esc(M.error)}` : esc(masterSummary());
 }
 
 const splitList = (v) => v.split(",").map((t) => t.trim()).filter(Boolean);
@@ -1146,6 +1291,7 @@ const splitList = (v) => v.split(",").map((t) => t.trim()).filter(Boolean);
 document.addEventListener("input", (e) => {
   const el = e.target;
   if (!el.closest(".master") || el.closest("[data-add]")) return;
+  M.error = "";
   if (el.id === "raw-master") {
     M.rawText = el.value;
     return updateSavebar();
@@ -1160,7 +1306,7 @@ document.addEventListener("input", (e) => {
       if (el.dataset.bf === "text") b.text = el.value.replace(/\s*\n\s*/g, " ");
       if (el.dataset.bf === "tags") b.tags = splitList(el.value);
       if (el.dataset.bf === "priority") b.priority = Number(el.value);
-      row.classList.add("dirty");
+      row.classList.toggle("dirty", bulletDirty(b));
     }
   }
   const g = el.closest("[data-gi]");
@@ -1181,7 +1327,9 @@ document.addEventListener("click", async (e) => {
   const act = el.dataset.mact;
   const card = el.closest("[data-kind]");
   const owner = card && M.draft[card.dataset.kind][Number(card.dataset.oi)];
-  if (act === "details") {
+  if (act === "jump") {
+    document.getElementById(el.dataset.target)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  } else if (act === "details") {
     M.open[el.dataset.key] = !M.open[el.dataset.key];
     renderMasterBody();
   } else if (act === "del") {
@@ -1214,6 +1362,7 @@ document.addEventListener("click", async (e) => {
     if (!confirm("Discard your unsaved master changes?")) return;
     M.draft = clone(M.base);
     M.rawText = null;
+    M.error = "";
     renderMasterBody();
   } else if (act === "save") {
     await saveMaster();
@@ -1228,6 +1377,7 @@ function allIds() {
 
 async function saveMaster() {
   M.saving = true;
+  M.error = "";
   $("#save-msg").textContent = "Saving…";
   try {
     const body = M.mode === "raw" && M.rawText != null ? { text: M.rawText } : { master: M.draft };
@@ -1243,7 +1393,7 @@ async function saveMaster() {
     const warns = r.warnings.length ? ` Check: ${r.warnings.map(esc).join("; ")}` : "";
     toast(`Master saved. The previous version is in master-history.${warns}`, !!warns, warns ? 9000 : 4000);
   } catch (err) {
-    $("#save-msg").innerHTML = `<span class="pill bad">Not saved</span> ${esc(err.message)}`;
+    M.error = err.message;
   } finally {
     M.saving = false;
     updateSavebar();
@@ -1252,6 +1402,20 @@ async function saveMaster() {
 
 window.addEventListener("beforeunload", (e) => {
   if (masterDirty()) e.preventDefault();
+});
+
+// Ctrl+S saves now instead of opening the browser's save dialog.
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== "s") return;
+  if (location.hash.startsWith("#/master")) {
+    e.preventDefault();
+    if (masterDirty() && !M.saving) saveMaster();
+  } else if (S.app) {
+    e.preventDefault();
+    saveNow();
+    saveLetter();
+    saveListing();
+  }
 });
 
 // ---------- snapshots ----------
@@ -1272,7 +1436,7 @@ async function showSnapshots() {
         <p class="muted" style="margin:0">A snapshot zips <code>master.yaml</code>, every application folder (without PDFs), the templates${S.init.example ? "" : ", <code>Local/</code> and <code>CLAUDE.local.md</code>"} into <code>snapshots/</code>. Take one before a big change.
         Restoring writes those files back over the current ones. It takes a new snapshot first, and files created after the snapshot are left alone.
         Separately, every save of <code>master.yaml</code> keeps the previous version in <code>snapshots/master-history/</code>.</p>
-        <div class="row"><input id="snap-label" placeholder="Label (optional), e.g. before-ghost-story-bullets" style="max-width:380px"><button class="primary" id="snap-create">Take snapshot</button></div>
+        <div class="row"><input id="snap-label" placeholder="Label (optional), e.g. before-big-rewrite" style="max-width:380px"><button class="primary" id="snap-create">Take snapshot</button></div>
       </div>
     </section>
     <section class="card">${snapshots.length ? `<ul class="snap-list">${rows}</ul>` : `<div class="empty">No snapshots yet.</div>`}</section>
@@ -1315,7 +1479,7 @@ async function pollVersions() {
   try {
     v = await api("GET", `/api/versions${name ? `?app=${enc(name)}` : ""}`);
   } catch {
-    status("Server not responding");
+    status("Server not responding", "bad");
     serverLost = true;
     return;
   }
