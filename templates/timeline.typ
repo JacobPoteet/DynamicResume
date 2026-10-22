@@ -38,7 +38,12 @@
   lhs, text(fill: muted)[#rhs],
 )
 
-#let bullets(items) = list(spacing: gap-bullet, ..items.map(b => [#b.text]))
+// The master build marks each bullet with its id, priority and tags.
+#let meta(b) = if b.at("meta", default: false) {
+  text(size: 7.5pt, fill: muted)[ #b.id | p#b.priority | #b.tags.join(", ")]
+}
+
+#let bullets(items) = list(spacing: gap-bullet, ..items.map(b => [#b.text#meta(b)]))
 
 // "Judas (Unreal Engine)", dropping the parenthetical when the name already says the engine.
 #let game-label(game, engine) = {
@@ -124,5 +129,9 @@
     ]))
   }
 
-  context [#metadata(counter(page).final().first()) <pagecount>]
+  // Read by build.py: page count, and where the content ends so it can report free space.
+  context [#metadata((
+    pages: counter(page).final().first(), end: here().position().y / 1pt,
+    top: margin-y / 1pt, limit: (page.height - margin-y) / 1pt,
+  )) <layout>]
 }

@@ -23,4 +23,8 @@
 #d.closing \
 #strong[#d.basics.name]
 
-#context [#metadata(counter(page).final().first()) <pagecount>]
+// Read by build.py: page count, and where the content ends so it can report free space.
+#context [#metadata((
+  pages: counter(page).final().first(), end: here().position().y / 1pt,
+  top: margin-y / 1pt, limit: (page.height - margin-y) / 1pt,
+)) <layout>]

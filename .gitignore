@@ -17,3 +17,6 @@ __pycache__/
 
 # Personal Claude rules
 /CLAUDE.local.md
+
+# App snapshots and master.yaml history (personal data)
+/snapshots/

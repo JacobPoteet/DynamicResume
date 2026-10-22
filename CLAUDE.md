@@ -2,20 +2,24 @@
 
 One master file of career data, a tailor file per job, Typst templates, and `build.py`. The goal is a one-page resume and matching cover letter for each application.
 
-**Privacy.** This is a public repo. `data/`, `applications/`, `Local/`, `build/` and all PDFs (outside `examples/`) are gitignored. Never commit personal data. Anything public goes in `examples/` with fictional data.
+**Privacy.** This is a public repo. `data/`, `applications/`, `Local/`, `build/`, `snapshots/` and all PDFs (outside `examples/`) are gitignored. Never commit personal data. Anything public goes in `examples/` with fictional data.
 
 **Personal rules and notes.** Anything specific to the user's own career, background, or notes lives in the gitignored `CLAUDE.local.md` at the repo root. Read it before tailoring. Never copy its contents, or anything that reveals where private notes are kept, into a committed file, commit message, or PR.
 
 ## Commands
 
 ```
+python build.py serve                # editor app at http://127.0.0.1:8765 (the main way to work)
 python build.py build <app-folder>   # name under applications/ or a path
 python build.py build master         # full pool, multi-page, shows bullet id | priority | tags
 python build.py build-all
-python build.py --example build-all  # --example goes BEFORE the subcommand; uses examples/
+python build.py snapshot [label]     # zip master, applications, templates, Local/ into snapshots/
+python build.py build-all --example  # --example (before or after the subcommand) uses examples/
 ```
 
-Needs `typst` (`winget install Typst.Typst`) and `pip install -r requirements.txt`. The build warns if the resume passes one page, and lints for em dashes and banned phrases.
+Needs `typst` (`winget install Typst.Typst`) and `pip install -r requirements.txt`. Every build reports the page count and how full the last page is, warns if the resume passes one page, and lints for em dashes and banned phrases.
+
+The app and the CLI read and write the same files, so either can be used at any time. The app saves `tailor.yaml` on every change and rebuilds the preview; it notices edits made to the files outside the app (by Claude or a text editor) within a couple of seconds and reloads. It writes YAML with ruamel round-trip, so comments and layout in `master.yaml` and `tailor.yaml` survive, and every master save keeps the previous file in `snapshots/master-history/`.
 
 ## Tailoring workflow (when the user pastes a job listing)
 
@@ -25,7 +29,7 @@ Needs `typst` (`winget install Typst.Typst`) and `pip install -r requirements.tx
 4. Write `tailor.yaml`: ordered bullet ids per position, `skills_first`, optional `overrides`. Copy an existing application's file as the starting point.
 5. Reword with `overrides` only where it helps match the listing's language. Never edit the master for one application.
 6. Write `cover-letter.md`: paragraphs separated by blank lines. Set greeting and closing in `tailor.yaml` under `cover_letter`.
-7. Run `python build.py build <folder>`. Confirm the output says 1 page for both PDFs. If over, cut lowest-priority bullets or skill groups; do not shrink fonts.
+7. Run `python build.py build <folder>`. Confirm the output says 1 page for both PDFs. If over, cut lowest-priority bullets or skill groups; do not shrink fonts. If the last page is well under 90% full, say so: the user may want to add a bullet.
 8. Tell the user which bullets were chosen and anything in the listing the master cannot back up, so they can add bullets.
 
 Never invent experience, metrics, tools, or titles. If a listing wants something the master lacks, say so and ask.
@@ -75,8 +79,8 @@ Tags in use: `leadership, mentorship, ui, game-ai, generative-ai, multiplayer, v
 
 ```yaml
 target: {studio: ..., role: ...}              # studio is used in output file names
-template: resume | resume-games | resume-inline   # optional, default resume
-games: [game ids]                             # optional, default all
+template: resume-games | resume-inline | resume   # optional, default resume-games
+games: [game ids]                             # optional; absent = all, [] = none
 positions:                                    # only listed positions appear
   <position id>:
     bullets: [ordered bullet ids]
@@ -87,11 +91,12 @@ overrides: {bullet id: replacement text}
 cover_letter: {greeting, closing, date}       # all optional
 ```
 
-An unknown id is a build error. An override that matches no selected bullet is a warning.
+An unknown id is a build error. An override that matches no selected bullet, or a top-level key the build does not use, is a warning.
 
 ## Files
 
-- `build.py`: merge, lint, compile, page count (via a `<pagecount>` metadata label in each template).
-- `templates/timeline.typ` (shared), `resume-games.typ`, `resume-inline.typ`: resumes grouped by company, so several roles at one company sit under one heading. `resume-games` has a Games section; `resume-inline` puts each game on its role line. Pick one with `template:` in `tailor.yaml`, or `python build.py build <app> --template resume-inline` (output gets the template name as a suffix). No template has a summary.
-- `templates/common.typ`: shared header band, fonts, page setup. `resume.typ`, `cover-letter.typ` read `sys.inputs.data` (resolved JSON in `build/`).
+- `build.py`: merge, lint, compile, page fill. Each template ends with a `<layout>` metadata label (page count, where the content ends, the usable area) that `build.py` queries. Errors raise `BuildError`; `collect_warnings()` gathers warnings for the app.
+- `studio/`: the editor app. `server.py` (standard library HTTP server, JSON API, 127.0.0.1 only), `workspace.py` (application folders, round-trip YAML merge, master history, snapshots), `static/` (one HTML page, plain JS and CSS, no build step).
+- `templates/timeline.typ` (shared), `resume-games.typ`, `resume-inline.typ`: resumes grouped by company, so several roles at one company sit under one heading. `resume-games` (the default) has a Games section; `resume-inline` puts each game on its role line. Pick one with `template:` in `tailor.yaml`, in the app, or try one with `python build.py build <app> --template resume-inline` (that trial PDF goes to `build/<app>/`, not the application folder). No template has a summary.
+- `templates/common.typ`: shared header band, fonts, page setup for the older `resume.typ` and for `cover-letter.typ`. All templates read `sys.inputs.data` (resolved JSON in `build/`).
 - Keep resumes ATS friendly: single column, real text, no icons, standard section names.

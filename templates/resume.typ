@@ -16,7 +16,7 @@
   ]
 }
 
-#let meta(b) = if d.at("meta", default: false) {
+#let meta(b) = if b.at("meta", default: false) {
   text(size: 7.5pt, fill: muted)[ #b.id | p#b.priority | #b.tags.join(", ")]
 }
 
@@ -71,4 +71,8 @@
   }
 ]
 
-#context [#metadata(counter(page).final().first()) <pagecount>]
+// Read by build.py: page count, and where the content ends so it can report free space.
+#context [#metadata((
+  pages: counter(page).final().first(), end: here().position().y / 1pt,
+  top: margin-y / 1pt, limit: (page.height - margin-y) / 1pt,
+)) <layout>]

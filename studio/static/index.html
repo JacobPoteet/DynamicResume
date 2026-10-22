@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DynamicResume</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="#/">DynamicResume</a>
+    <nav>
+      <a href="#/" data-nav="apps">Applications</a>
+      <a href="#/master" data-nav="master">Master</a>
+      <a href="#/snapshots" data-nav="snapshots">Snapshots</a>
+    </nav>
+    <span id="example-badge" class="pill warn" hidden>Example data</span>
+    <span class="grow"></span>
+    <span id="status" class="muted"></span>
+    <button id="snap-btn" title="Zip master.yaml, every application and the templates into snapshots/">Take snapshot</button>
+  </header>
+  <main id="view"></main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

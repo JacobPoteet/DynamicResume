@@ -2,8 +2,6 @@ target:
   studio: Sample Studio
   role: Gameplay Designer
 
-summary: Gameplay designer with shipped mobile and console titles, focused on enemy behavior and design tooling.
-
 positions:
   pixel-forge-sr:
     bullets: [rr-tools, rr-bots, rr-lead]
