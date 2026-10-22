@@ -135,6 +135,13 @@ def get_preview(s, body, q, name, kind):
     return s.preview(name, kind)
 
 
+@route("PUT", "/api/apps/([^/]+)/letter")
+def put_letter(s, body, q, name):
+    with LOCK:
+        s.ws.save_text(name, "cover-letter.md", body["text"])
+    return {"preview": s.preview(name, "letter", letter=body["text"]), "versions": s.versions(name)}
+
+
 @route("POST", "/api/apps/([^/]+)/finalize")
 def finalize(s, body, q, name):
     return s.finalize(name)
@@ -177,8 +184,12 @@ def put_master(s, body, q):
             s.ws.save_master_text(body["text"])
         else:
             s.ws.save_master(body["master"])
-    return {"master": s.ws.master(), "text": s.ws.master_text(), "usage": s.ws.bullet_usage(),
-            "versions": s.versions()}
+        master = s.ws.master()
+        with build.collect_warnings() as warnings:
+            for text in build.walk_strings(master):
+                build.lint(text, "master")
+    return {"master": master, "text": s.ws.master_text(), "usage": s.ws.bullet_usage(),
+            "versions": s.versions(), "warnings": warnings}
 
 
 @route("GET", "/api/snapshots")

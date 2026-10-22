@@ -19,7 +19,7 @@ python build.py build-all --example  # --example (before or after the subcommand
 
 Needs `typst` (`winget install Typst.Typst`) and `pip install -r requirements.txt`. Every build reports the page count and how full the last page is, warns if the resume passes one page, and lints for em dashes and banned phrases.
 
-The app and the CLI read and write the same files, so either can be used at any time. The app saves `tailor.yaml` on every change and rebuilds the preview; it notices edits made to the files outside the app (by Claude or a text editor) within a couple of seconds and reloads. It writes YAML with ruamel round-trip, so comments and layout in `master.yaml` and `tailor.yaml` survive, and every master save keeps the previous file in `snapshots/master-history/`.
+The app has four areas: Applications (list, new application), the editor (Resume, Cover letter and Listing tabs beside a live page preview), Master (edit bullets, tags, priorities, position details and skills, or the raw YAML; Save validates before writing and refuses to delete a bullet an application uses), and Snapshots. The app and the CLI read and write the same files, so either can be used at any time. The app saves `tailor.yaml` on every change and rebuilds the preview; it notices edits made to the files outside the app (by Claude or a text editor) within a couple of seconds and reloads. It writes YAML with ruamel round-trip, so comments and layout in `master.yaml` and `tailor.yaml` survive, and every master save keeps the previous file in `snapshots/master-history/`.
 
 ## Tailoring workflow (when the user pastes a job listing)
 

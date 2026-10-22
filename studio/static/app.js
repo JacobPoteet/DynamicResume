@@ -53,13 +53,24 @@ const ON_OUTSIDE_EDIT = { blocked: () => false };
 
 // ---------- routing ----------
 
+let lastHash = location.hash;
 function route() {
   const [a, b, c] = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
+  if (a !== "master" && lastHash.startsWith("#/master") && masterDirty()) {
+    if (!confirm("You have unsaved master changes. Leave and discard them?")) {
+      history.replaceState(null, "", lastHash);
+      return;
+    }
+    M.draft = null;
+  }
+  lastHash = location.hash;
   const section = a === "master" ? "master" : a === "snapshots" ? "snapshots" : "apps";
   document.querySelectorAll(".top nav a").forEach((n) => n.classList.toggle("on", n.dataset.nav === section));
   saveNow();
+  saveLetter();
+  saveListing();
   const go = a === "app" && b ? showEditor(b, c || "resume")
-    : a === "master" ? showMaster()
+    : a === "master" ? showMaster(b === "raw" ? "raw" : "bullets")
     : a === "snapshots" ? showSnapshots()
     : showHome();
   go.catch((e) => view(`<div class="page"><div class="card"><div class="bd">${esc(e.message)}</div></div></div>`));
@@ -160,7 +171,7 @@ async function loadApp(name) {
 }
 
 async function showEditor(name, tab) {
-  if (!S.app || S.app.name !== name) await loadApp(name);
+  if (!S.app || S.app.name !== name || !S.master) await loadApp(name);
   S.tab = tab;
   const t = S.app.tailor;
   const tabs = [["resume", "Resume"], ["letter", "Cover letter"], ["listing", "Listing"]].filter(([k]) => TABS[k]);
@@ -213,7 +224,7 @@ function renderPdfState() {
 
 async function finalize() {
   const btn = $("#finalize");
-  await saveNow();
+  await Promise.all([saveNow(), saveLetter(), saveListing()]);
   btn.disabled = true;
   btn.textContent = "Building…";
   try {
@@ -266,6 +277,7 @@ async function saveNow() {
     for (const k of ["resume", "letter"]) if (S.app.pdfs[k].exists) S.app.pdfs[k].stale = true;
     renderPdfState();
     if (TABS[S.tab]?.preview === "resume") renderPreview("resume");
+    else refreshPreview(TABS[S.tab].preview);
     status("Saved");
   } catch (e) {
     toast(esc(e.message), true);
@@ -313,7 +325,7 @@ async function renderPreview(kind) {
   if (f.pages != null) {
     line = over
       ? `<strong>${f.pages} pages</strong><span>runs ${pct}% into page ${f.pages}, trim to fit one page</span>`
-      : `<strong>1 page</strong><span>${pct}% full</span><span class="muted">about ${plural(f.lines_free, "line")} free</span>`;
+      : `<strong>1 page</strong><span>${pct}% full</span>${kind === "resume" ? `<span class="muted">about ${plural(f.lines_free, "line")} free</span>` : ""}`;
   }
   const warnings = [
     ...(p.ok ? [] : [`<li class="err">${esc(p.error)}</li>`]),
@@ -742,6 +754,75 @@ document.addEventListener("dragend", () => {
   document.querySelectorAll(".dragging,.drop-before,.drop-after").forEach((x) => x.classList.remove("dragging", "drop-before", "drop-after"));
 });
 
+// ---------- cover letter tab ----------
+
+TABS.letter = { left: renderLetterLeft, preview: "letter" };
+
+function renderLetterLeft() {
+  const cl = S.app.tailor.cover_letter || {};
+  $("#left").innerHTML = `<div class="stack letter">
+    <div class="target">
+      <label class="field">Greeting<input data-field="cl-greeting" value="${esc(cl.greeting)}" placeholder="Dear Hiring Team,"></label>
+      <label class="field">Closing<input data-field="cl-closing" value="${esc(cl.closing)}" placeholder="Sincerely,"></label>
+    </div>
+    <label class="field">Date (optional, printed above the greeting)<input data-field="cl-date" value="${esc(cl.date)}" placeholder="October 22, 2026"></label>
+    <label class="field">Letter body: cover-letter.md, a blank line between paragraphs
+      <textarea id="letter-text" placeholder="${S.init.claude ? "Draft with Claude on the Listing tab writes a first version here." : ""}">${esc(S.app.letter || "")}</textarea></label>
+    <div class="muted" id="letter-count" style="font-size:12px"></div>
+  </div>`;
+  countLetter();
+}
+
+function countLetter() {
+  const text = S.app.letter || "";
+  const paras = text.split(/\n\s*\n/).filter((p) => p.trim()).length;
+  const n = (text.match(/\S+/g) || []).length;
+  $("#letter-count").textContent = `${plural(n, "word")} in ${plural(paras, "paragraph")}. Most letters land between 250 and 400 words.`;
+}
+
+function setLetterField(key, value) {
+  const t = S.app.tailor;
+  t.cover_letter = t.cover_letter || {};
+  if (value.trim()) t.cover_letter[key] = value;
+  else delete t.cover_letter[key];
+  if (!Object.keys(t.cover_letter).length) delete t.cover_letter;
+}
+FIELD_SETTERS["cl-greeting"] = (v) => setLetterField("greeting", v);
+FIELD_SETTERS["cl-closing"] = (v) => setLetterField("closing", v);
+FIELD_SETTERS["cl-date"] = (v) => setLetterField("date", v);
+
+let letterTimer = null;
+let letterPending = false;
+document.addEventListener("input", (e) => {
+  if (!S.app || e.target.id !== "letter-text") return;
+  S.app.letter = e.target.value;
+  countLetter();
+  letterPending = true;
+  status("Unsaved changes");
+  clearTimeout(letterTimer);
+  letterTimer = setTimeout(saveLetter, 600);
+});
+
+async function saveLetter() {
+  clearTimeout(letterTimer);
+  if (!letterPending || !S.app) return;
+  letterPending = false;
+  const name = S.app.name;
+  $(".pages")?.classList.add("busy");
+  try {
+    const r = await api("PUT", `/api/apps/${enc(name)}/letter`, { text: S.app.letter });
+    S.versions = { ...S.versions, ...r.versions };
+    if (S.app?.name !== name) return;
+    S.previews.letter = r.preview;
+    if (S.app.pdfs.letter.exists) S.app.pdfs.letter.stale = true;
+    renderPdfState();
+    if (S.tab === "letter") renderPreview("letter");
+    status("Saved");
+  } catch (e) {
+    toast(esc(e.message), true);
+  }
+}
+
 // ---------- listing tab ----------
 
 TABS.listing = { left: renderListingLeft, preview: "resume" };
@@ -930,14 +1011,248 @@ async function checkDraft(name) {
 }
 
 ON_OUTSIDE_EDIT.blocked = () =>
-  listingDirty.size > 0 || S.draft[S.app?.name]?.state === "running" ||
+  listingDirty.size > 0 || letterPending || S.draft[S.app?.name]?.state === "running" ||
   !!document.activeElement?.closest?.("#left") && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.type !== "checkbox";
 
 // ---------- master ----------
 
-async function showMaster() {
-  view(`<div class="page"><div class="card"><div class="bd">Master editing arrives in the next update. Edit <code>data/master.yaml</code> in your editor for now; open applications refresh on save.</div></div></div>`);
+// Edits collect in M.draft and are written together with Save. The server merges them into
+// master.yaml without disturbing its comments, and keeps the previous file in master-history.
+const M = { base: null, draft: null, text: "", rawText: null, usage: {}, mode: "bullets", open: {}, saving: false };
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const masterDirty = () => !!M.draft && (JSON.stringify(M.draft) !== JSON.stringify(M.base) || (M.rawText != null && M.rawText !== M.text));
+
+async function loadMaster() {
+  const r = await api("GET", "/api/master");
+  M.base = r.master;
+  M.draft = clone(r.master);
+  M.text = r.text;
+  M.rawText = null;
+  M.usage = r.usage;
 }
+
+async function showMaster(mode = "bullets") {
+  S.app = null;
+  if (!M.draft || !masterDirty()) await loadMaster();
+  if (mode !== M.mode && masterDirty()) {
+    toast("Save or discard your changes before switching views.");
+    location.hash = M.mode === "raw" ? "#/master/raw" : "#/master";
+    return;
+  }
+  M.mode = mode;
+  const count = [...M.draft.positions, ...(M.draft.projects || [])].reduce((n, o) => n + (o.bullets || []).length, 0);
+  view(`<div class="master">
+    <div class="page" style="padding-bottom:20px">
+      <div class="row" style="margin-bottom:14px">
+        <h1>Master</h1>
+        <nav class="tabs"><a href="#/master" class="${mode === "bullets" ? "on" : ""}">Bullets</a><a href="#/master/raw" class="${mode === "raw" ? "on" : ""}">Raw YAML</a></nav>
+        <span class="grow"></span><span class="muted" style="font-size:12px">${esc(S.init.example ? "examples/data/master.yaml" : "data/master.yaml")} · ${plural(count, "bullet")}</span>
+      </div>
+      <div id="mbody" class="stack"></div>
+    </div>
+    <div class="savebar" id="savebar" hidden>
+      <span id="save-msg">Unsaved changes</span><span class="grow"></span>
+      <button class="ghost" data-mact="discard">Discard</button><button class="primary" data-mact="save">Save master</button>
+    </div>
+  </div>`);
+  renderMasterBody();
+}
+
+function renderMasterBody() {
+  const body = $("#mbody");
+  if (M.mode === "raw") {
+    body.innerHTML = `<p class="muted" style="margin:0;font-size:13px">The whole file, comments included. Saving checks that it parses and builds before writing.
+      Bullet ids are referenced by applications: do not rename one that is in use.</p>
+      <textarea class="raw" id="raw-master" spellcheck="false">${esc(M.rawText ?? M.text)}</textarea>`;
+    return updateSavebar();
+  }
+  const tags = new Set();
+  for (const o of [...M.draft.positions, ...(M.draft.projects || [])]) for (const b of o.bullets || []) (b.tags || []).forEach((t) => tags.add(t));
+  body.innerHTML = `<datalist id="tag-list">${[...tags].sort().map((t) => `<option value="${esc(t)}">`).join("")}</datalist>
+    ${M.draft.positions.map((o, i) => ownerCard("positions", o, i)).join("")}
+    ${(M.draft.projects || []).map((o, i) => ownerCard("projects", o, i)).join("")}
+    ${skillsCard()}`;
+  updateSavebar();
+}
+
+const OWNER_FIELDS = {
+  positions: ["title", "company", "product", "engine", "location", "start", "end"],
+  projects: ["name", "url", "summary"],
+};
+
+function ownerCard(kind, o, oi) {
+  const key = `${kind}:${o.id}`;
+  const head = kind === "positions" ? `${o.company} · ${o.title}` : `Project: ${o.name}`;
+  const sub = kind === "positions" ? `${o.start} to ${o.end}${o.product ? ` · ${o.product}` : ""}` : o.url || "";
+  const prefix = commonPrefix((o.bullets || []).map((b) => b.id));
+  return `<section class="card" data-kind="${kind}" data-oi="${oi}">
+    <div class="hd"><div class="grow"><strong>${esc(head)}</strong><div class="muted" style="font-size:12px">${esc(sub)}</div></div>
+      <code class="faint">${esc(o.id)}</code>
+      <button class="ghost small" data-mact="details" data-key="${esc(key)}">${M.open[key] ? "Hide details" : "Details"}</button></div>
+    ${M.open[key] ? `<div class="bd target" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+      ${OWNER_FIELDS[kind].map((f) => `<label class="field">${f}<input data-of="${f}" value="${esc(o[f])}"></label>`).join("")}</div>` : ""}
+    ${(o.bullets || []).map((b, bi) => {
+      const used = M.usage[b.id] || [];
+      return `<div class="mb" data-bi="${bi}">
+        <textarea data-bf="text" rows="2">${esc(b.text)}</textarea>
+        <div class="row2">
+          <code title="Bullet id, used by applications">${esc(b.id)}</code>
+          <input data-bf="tags" list="tag-list" value="${esc((b.tags || []).join(", "))}" placeholder="tags, comma separated">
+          <select data-bf="priority" title="1 = strongest">${[1, 2, 3].map((p) => `<option value="${p}" ${(b.priority ?? 3) === p ? "selected" : ""}>p${p}</option>`).join("")}</select>
+          <span class="row">
+            <span class="pill ${used.length ? "" : "plain"}" title="${esc(used.join(", ") || "Not used by any application")}">${used.length ? `in ${plural(used.length, "app")}` : "unused"}</span>
+            <button class="ghost small danger" data-mact="del" title="Delete bullet">Delete</button>
+          </span>
+        </div>
+      </div>`;
+    }).join("")}
+    <div class="mb" data-add>
+      <textarea data-add="text" rows="2" placeholder="New bullet: what you did, with a concrete result"></textarea>
+      <div class="row2">
+        <input data-add="id" value="${esc(prefix)}" placeholder="unique-id" title="Short, stable id. Never rename it once an application uses it.">
+        <input data-add="tags" list="tag-list" placeholder="tags, comma separated">
+        <select data-add="priority"><option value="1">p1</option><option value="2" selected>p2</option><option value="3">p3</option></select>
+        <button class="small" data-mact="add">Add bullet</button>
+      </div>
+    </div>
+  </section>`;
+}
+
+function commonPrefix(ids) {
+  const parts = ids.map((id) => id.split("-")[0]);
+  return parts.length && parts.every((p) => p === parts[0]) ? `${parts[0]}-` : "";
+}
+
+function skillsCard() {
+  return `<section class="card" data-skills>
+    <div class="hd"><strong class="grow">Skills</strong><span class="faint" style="font-size:12px">one line per group on the resume, comma separated</span></div>
+    ${(M.draft.skills || []).map((g, gi) => `<div class="mb" data-gi="${gi}">
+      <div class="row2" style="grid-template-columns:150px 1fr auto">
+        <input data-gf="group" value="${esc(g.group)}">
+        <input data-gf="items" value="${esc((g.items || []).join(", "))}">
+        <button class="ghost small danger" data-mact="del-group">Delete</button>
+      </div></div>`).join("")}
+    <div class="mb"><div class="row"><button class="small" data-mact="add-group">Add skill group</button></div></div>
+  </section>`;
+}
+
+function updateSavebar() {
+  const bar = $("#savebar");
+  if (bar) bar.hidden = !masterDirty() && !M.saving;
+}
+
+const splitList = (v) => v.split(",").map((t) => t.trim()).filter(Boolean);
+
+document.addEventListener("input", (e) => {
+  const el = e.target;
+  if (!el.closest(".master") || el.closest("[data-add]")) return;
+  if (el.id === "raw-master") {
+    M.rawText = el.value;
+    return updateSavebar();
+  }
+  const card = el.closest("[data-kind]");
+  if (card) {
+    const owner = M.draft[card.dataset.kind][Number(card.dataset.oi)];
+    if (el.dataset.of) owner[el.dataset.of] = el.value;
+    const row = el.closest("[data-bi]");
+    if (row && el.dataset.bf) {
+      const b = owner.bullets[Number(row.dataset.bi)];
+      if (el.dataset.bf === "text") b.text = el.value.replace(/\s*\n\s*/g, " ");
+      if (el.dataset.bf === "tags") b.tags = splitList(el.value);
+      if (el.dataset.bf === "priority") b.priority = Number(el.value);
+      row.classList.add("dirty");
+    }
+  }
+  const g = el.closest("[data-gi]");
+  if (g) {
+    const group = M.draft.skills[Number(g.dataset.gi)];
+    if (el.dataset.gf === "group") group.group = el.value;
+    if (el.dataset.gf === "items") group.items = splitList(el.value);
+  }
+  updateSavebar();
+});
+document.addEventListener("change", (e) => {
+  if (e.target.closest(".master") && e.target.dataset.bf === "priority") e.target.dispatchEvent(new Event("input", { bubbles: true }));
+});
+
+document.addEventListener("click", async (e) => {
+  const el = e.target.closest("[data-mact]");
+  if (!el || !el.closest(".master")) return;
+  const act = el.dataset.mact;
+  const card = el.closest("[data-kind]");
+  const owner = card && M.draft[card.dataset.kind][Number(card.dataset.oi)];
+  if (act === "details") {
+    M.open[el.dataset.key] = !M.open[el.dataset.key];
+    renderMasterBody();
+  } else if (act === "del") {
+    const b = owner.bullets[Number(el.closest("[data-bi]").dataset.bi)];
+    const used = M.usage[b.id] || [];
+    if (used.length) return toast(`${esc(b.id)} is used by ${used.map(esc).join(", ")}. Untick it there first, then delete it here.`, true, 7000);
+    if (!confirm(`Delete bullet ${b.id}?\n\n${b.text}`)) return;
+    owner.bullets.splice(owner.bullets.indexOf(b), 1);
+    renderMasterBody();
+  } else if (act === "add") {
+    const box = el.closest("[data-add]");
+    const id = box.querySelector("[data-add=id]").value.trim();
+    const text = box.querySelector("[data-add=text]").value.replace(/\s+/g, " ").trim();
+    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(id)) return toast("Give the bullet an id of lowercase letters, numbers and hyphens.", true);
+    if (allIds().has(id)) return toast(`The id ${esc(id)} is already used. Pick another.`, true);
+    if (!text) return toast("Write the bullet text first.", true);
+    owner.bullets = owner.bullets || [];
+    owner.bullets.push({ id, text, tags: splitList(box.querySelector("[data-add=tags]").value), priority: Number(box.querySelector("[data-add=priority]").value) });
+    renderMasterBody();
+  } else if (act === "add-group") {
+    M.draft.skills = M.draft.skills || [];
+    M.draft.skills.push({ group: "New group", items: [] });
+    renderMasterBody();
+  } else if (act === "del-group") {
+    const gi = Number(el.closest("[data-gi]").dataset.gi);
+    if (!confirm(`Delete the skill group ${M.draft.skills[gi].group}?`)) return;
+    M.draft.skills.splice(gi, 1);
+    renderMasterBody();
+  } else if (act === "discard") {
+    if (!confirm("Discard your unsaved master changes?")) return;
+    M.draft = clone(M.base);
+    M.rawText = null;
+    renderMasterBody();
+  } else if (act === "save") {
+    await saveMaster();
+  }
+});
+
+function allIds() {
+  const ids = new Set();
+  for (const o of [...M.draft.positions, ...(M.draft.projects || [])]) for (const b of o.bullets || []) ids.add(b.id);
+  return ids;
+}
+
+async function saveMaster() {
+  M.saving = true;
+  $("#save-msg").textContent = "Saving…";
+  try {
+    const body = M.mode === "raw" && M.rawText != null ? { text: M.rawText } : { master: M.draft };
+    const r = await api("PUT", "/api/master", body);
+    M.base = r.master;
+    M.draft = clone(r.master);
+    M.text = r.text;
+    M.rawText = null;
+    M.usage = r.usage;
+    S.versions = { ...S.versions, ...r.versions };
+    S.master = null;
+    renderMasterBody();
+    const warns = r.warnings.length ? ` Check: ${r.warnings.map(esc).join("; ")}` : "";
+    toast(`Master saved. The previous version is in master-history.${warns}`, !!warns, warns ? 9000 : 4000);
+  } catch (err) {
+    $("#save-msg").innerHTML = `<span class="pill bad">Not saved</span> ${esc(err.message)}`;
+  } finally {
+    M.saving = false;
+    updateSavebar();
+  }
+}
+
+window.addEventListener("beforeunload", (e) => {
+  if (masterDirty()) e.preventDefault();
+});
 
 // ---------- snapshots ----------
 
@@ -1008,6 +1323,12 @@ async function pollVersions() {
   serverLost = false;
   const moved = Object.keys(v).some((k) => k in S.versions && v[k] > S.versions[k] + 0.001);
   S.versions = { ...S.versions, ...v };
+  if (moved && !S.app && location.hash.startsWith("#/master")) {
+    if (masterDirty()) return toast("master.yaml changed on disk while you have unsaved edits here. Saving will overwrite those outside changes.", true, 8000);
+    M.draft = null;
+    showMaster(M.mode);
+    return toast("Reloaded: master.yaml changed on disk");
+  }
   if (!moved || !S.app || S.app.name !== name) return;
   if (S.ui.editing || ON_OUTSIDE_EDIT.blocked()) {
     toast("Files changed on disk. Finish your edit, then reload the page to see them.");
