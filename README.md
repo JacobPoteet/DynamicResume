@@ -34,4 +34,4 @@ python build.py --example build-all
 
 `data/`, `applications/`, `snapshots/` and PDFs are gitignored, so personal data stays local. The schema and tailoring workflow are documented in [CLAUDE.md](CLAUDE.md), which is written so an AI assistant can tailor applications for you.
 
-Fonts: Calibri, then Arial, then Typst's built-in serif. Edit `templates/common.typ` to change them.
+Fonts: Calibri, then Arial, then Typst's built-in serif. Edit `templates/timeline.typ` to change them (`common.typ` for the older `resume.typ`).

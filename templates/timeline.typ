@@ -19,15 +19,38 @@
 #let gap-head = 4.5pt     // between a heading block and its first bullet
 #let gap-bullet = 4.5pt   // between bullets; must stay larger than the line leading so wrapped lines read as one bullet
 
+#let filled(x) = x != none and x != ""
+
+// Shows the address as written and links it, adding https:// when it has no scheme.
+#let web-link(url) = link(if url.starts-with("http") { url } else { "https://" + url }, url)
+
+// Email and LinkedIn are real links, so a recruiter reading the PDF can click them.
 #let contact-line(b) = {
-  let parts = (b.email, b.phone, b.location, b.linkedin).filter(x => x != none and x != "")
+  let parts = (
+    if filled(b.email) { link("mailto:" + b.email, b.email) },
+    b.phone, b.location,
+    if filled(b.linkedin) { web-link(b.linkedin) },
+  ).filter(filled)
   parts.join(h(0.55em) + text(fill: rule-soft)[|] + h(0.55em))
 }
 
+// Name, optional headline, contact line. The cover letter uses the same header.
+#let header(b, headline) = {
+  text(size: 25pt, weight: "bold", fill: accent)[#b.name]
+  if filled(headline) {
+    v(5pt)
+    text(size: 11.5pt)[#headline]
+  }
+  v(6pt)
+  text(size: 9.5pt, fill: muted)[#contact-line(b)]
+}
+
+// Keep tracking at 0.08em or less: wider letter spacing makes some PDF text extractors
+// (and the ATS parsers built on them) read the heading as "E X P E R I E N C E".
 #let section(title) = {
   v(gap-section)
   block(width: 100%, sticky: true, stroke: (bottom: 0.6pt + rule-soft), inset: (bottom: 2.5pt))[
-    #text(size: 9.2pt, weight: "bold", fill: accent, tracking: 0.13em)[#upper(title)]
+    #text(size: 9.2pt, weight: "bold", fill: accent, tracking: 0.06em)[#upper(title)]
   ]
   v(gap-heading)
 }
@@ -51,7 +74,7 @@
 }
 
 #let role(r, inline-game) = {
-  let head = [#text(fill: accent, weight: "bold")[#r.title]#if inline-game and r.game != "" [ #text(fill: muted)[|] #emph[#game-label(r.game, r.engine)]]]
+  let head = [#text(fill: accent, weight: "bold")[#r.title]#if filled(r.team) [#text(fill: muted)[, #r.team]]#if inline-game and r.game != "" [ #text(fill: muted)[|] #emph[#game-label(r.game, r.engine)]]]
   block(breakable: false)[
     #row(head, r.dates_short)
     #v(gap-head)
@@ -60,34 +83,31 @@
 }
 
 #let render(d, show-games) = {
+  set document(title: d.basics.name + " Resume", author: d.basics.name)
   set page(paper: "us-letter", margin: (x: margin-x, y: margin-y))
   set text(font: ("Calibri", "Arial", "Libertinus Serif"), size: 10pt, fill: ink, lang: "en")
   set par(leading: 0.4em, spacing: 0pt, justify: false)
   set block(spacing: 0pt)
   set list(marker: text(fill: accent)[•], body-indent: 0.55em, indent: 0.15em)
 
-  text(size: 25pt, weight: "bold", fill: accent)[#d.basics.name]
-  v(6pt)
-  text(size: 9.5pt, fill: muted)[#contact-line(d.basics)]
+  header(d.basics, d.headline)
 
+  // One plain line per game, without dates. A company and date range on each row would read
+  // to an ATS as extra jobs, and columns lose their order when the text is extracted.
   if show-games and d.games.len() > 0 {
     section("Games")
-    grid(
-      columns: (3.1in, 1fr, auto), column-gutter: 1em, row-gutter: 4pt, align: (left + top, left + top, right + top),
-      ..d.games.map(g => (
-        [#strong[#g.name]#if g.engine != "" and not g.name.contains(g.engine) [ #text(fill: muted)[(#g.engine)]]],
-        text(fill: muted)[#g.company],
-        text(fill: muted)[#g.dates_short],
-      )).flatten(),
-    )
+    stack(spacing: 4pt, ..d.games.map(g => [
+      #strong[#g.name]#if g.engine != "" and not g.name.contains(g.engine) [ #text(fill: muted)[(#g.engine)]]#if filled(g.company) [ #text(fill: muted)[|] #g.company]
+    ]))
   }
 
   section("Experience")
   for (i, g) in d.groups.enumerate() {
     if i > 0 { v(gap-group) }
+    // Each role carries its own dates, so promotions show no company-wide span on top.
     let multi = g.roles.len() > 1
     block(sticky: true)[
-      #row(text(size: 10.6pt)[#strong[#g.company]], [#g.location#if multi [ #h(0.8em) #g.dates_short]])
+      #row(text(size: 10.6pt)[#strong[#g.company]], g.location)
     ]
     v(gap-line)
     if multi {
@@ -104,7 +124,7 @@
     for (i, pr) in d.projects.enumerate() {
       if i > 0 { v(gap-group) }
       block(breakable: false)[
-        #row(text(size: 10.6pt)[#strong[#pr.name]], if pr.url != none { pr.url } else { "" })
+        #row(text(size: 10.6pt)[#strong[#pr.name]], if filled(pr.url) { web-link(pr.url) } else { "" })
         #if pr.summary != none [
           #v(gap-line)
           #text(fill: muted)[#emph[#pr.summary]]

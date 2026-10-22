@@ -40,9 +40,12 @@ Do not create or edit any files. Reply with only one JSON object, no prose and n
 
 - requirements: the listing's 6 to 12 real asks, each under 8 words. must is true for required
   qualifications and false for nice-to-haves.
-- tailor: target {{studio, role}}, template "{template}", positions with ordered bullet ids,
+- tailor: target {{studio, role}}, template "{template}", headline, positions with ordered bullet ids,
   skills_first, skill_groups, projects as {{id: {{bullets: [ids]}}}}, overrides only where rewording
   helps match the listing, and cover_letter {{greeting, closing}}. Use only ids that exist in the master.
+- headline: one line under the name, "<title> | <two to four focus areas>". The title must be one the
+  master shows the person holding (usually the most recent); the focus areas use the listing's words
+  where the selected bullets back them up. Never a title they have not held.
 - Size: a full page is usually 17 to 21 bullets across positions and projects. Aim to fill the page
   without going over; the user fine-tunes it in the editor afterwards.
 - Never invent experience, metrics, tools or titles. Put anything the master cannot support in gaps.
@@ -204,6 +207,8 @@ def clean_tailor(master, t, warnings):
     out = {"target": {k: str(v) for k, v in (t.get("target") or {}).items() if k in ("studio", "role")}}
     tpl = t.get("template") or build.DEFAULT_TEMPLATE
     out["template"] = tpl if tpl in build.templates() else build.DEFAULT_TEMPLATE
+    if str(t.get("headline") or "").strip():
+        out["headline"] = str(t["headline"]).strip()
 
     def ids_for(owners, sel, kind):
         by_owner = {o["id"]: [b["id"] for b in o.get("bullets") or []] for o in owners}

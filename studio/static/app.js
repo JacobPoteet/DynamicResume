@@ -511,6 +511,8 @@ function renderResumeLeft() {
     <div class="target">
       <label class="field">Studio (used in PDF names)<input data-field="studio" value="${esc(tg.studio)}"></label>
       <label class="field">Role<input data-field="role" value="${esc(tg.role)}"></label>
+      <label class="field wide">Headline (one line under your name)<input data-field="headline" value="${esc(t.headline)}"
+        placeholder="${esc((m.basics || {}).headline || "Your title | two to four focus areas from the listing")}"></label>
     </div>`;
   html += reqsBlock();
   if ((m.games || []).length) html += sec("Games", (t.template || S.init.default_template) === "resume-games" ? "" : "only resume-games shows this section") + gamesBlock();
@@ -724,6 +726,10 @@ document.addEventListener("input", (e) => {
 });
 
 const FIELD_SETTERS = {};
+FIELD_SETTERS.headline = (v) => {
+  if (v.trim()) S.app.tailor.headline = v;
+  else delete S.app.tailor.headline;
+};
 
 document.addEventListener("click", async (e) => {
   const el = e.target.closest("[data-act]");
@@ -1194,19 +1200,19 @@ function renderJump() {
   const btn = (target, label, dirty) => `<button class="${dirty ? "dirty" : ""}" data-mact="jump" data-target="${target}"${dirty ? ` title="Unsaved changes"` : ""}>${esc(label)}</button>`;
   nav.innerHTML = `<span class="muted" style="font-size:12px">Jump to</span>
     ${M.draft.positions.map((o, i) => btn(`m-positions-${i}`,
-      companies.filter((c) => c === o.company).length > 1 ? `${o.company} (${o.title})` : o.company, ownerDirty("positions", o, i))).join("")}
+      companies.filter((c) => c === o.company).length > 1 ? `${o.company} (${[o.title, o.team].filter(Boolean).join(", ")})` : o.company, ownerDirty("positions", o, i))).join("")}
     ${(M.draft.projects || []).map((o, i) => btn(`m-projects-${i}`, o.name, ownerDirty("projects", o, i))).join("")}
     ${btn("m-skills", "Skills", JSON.stringify(M.draft.skills) !== JSON.stringify(M.base.skills))}`;
 }
 
 const OWNER_FIELDS = {
-  positions: ["title", "company", "product", "engine", "location", "start", "end"],
+  positions: ["title", "team", "company", "product", "engine", "location", "start", "end"],
   projects: ["name", "url", "summary"],
 };
 
 function ownerCard(kind, o, oi) {
   const key = `${kind}:${o.id}`;
-  const head = kind === "positions" ? `${o.company} · ${o.title}` : `Project: ${o.name}`;
+  const head = kind === "positions" ? `${o.company} · ${[o.title, o.team].filter(Boolean).join(", ")}` : `Project: ${o.name}`;
   const sub = kind === "positions" ? `${o.start} to ${o.end}${o.product ? ` · ${o.product}` : ""}` : o.url || "";
   const prefix = commonPrefix((o.bullets || []).map((b) => b.id));
   const base = baseBullets();

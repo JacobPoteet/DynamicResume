@@ -180,6 +180,7 @@ label.field { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
 .sec { margin: 18px 0 8px; display: flex; align-items: baseline; gap: 8px; }
 .sec h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
 .target { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.target .wide { grid-column: 1 / -1; }
 
 .pos { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
 .pos.off { background: transparent; border-style: dashed; }

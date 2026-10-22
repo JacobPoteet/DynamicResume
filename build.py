@@ -23,8 +23,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent
 TEMPLATES = ROOT / "templates"
-DEFAULT_TEMPLATE = "resume-games"
-TAILOR_KEYS = {"target", "template", "games", "positions", "skills_first", "skill_groups",
+DEFAULT_TEMPLATE = "resume-inline"
+TAILOR_KEYS = {"target", "template", "headline", "games", "positions", "skills_first", "skill_groups",
                "projects", "overrides", "cover_letter"}
 BANNED = ["leverage", "passionate about", "drive innovation", "spearhead", "synergy", "cutting-edge", "excited to"]
 EM_DASH = "—"
@@ -219,7 +219,7 @@ def resolve(master, tailor, master_mode):
         if p["id"] not in pos_sel:
             continue
         positions.append({
-            "id": p["id"], "heading": pos_heading(p), "title": p["title"],
+            "id": p["id"], "heading": pos_heading(p), "title": p["title"], "team": p.get("team", ""),
             "company": p["company"], "engine": p.get("engine", ""),
             "game": games_by_id.get(p.get("game"), {}).get("name", p.get("product", "")),
             "location": p.get("location", ""), "dates": date_range(p["start"], p["end"]),
@@ -228,15 +228,13 @@ def resolve(master, tailor, master_mode):
             "bullets": pick(p.get("bullets") or [], pos_sel[p["id"]], f"position {p['id']}"),
         })
 
-    # Consecutive positions at one company become a single group with a shared span.
+    # Consecutive positions at one company become a single group; each role keeps its own dates.
     groups = []
     for pos in positions:
         if groups and groups[-1]["company"] == pos["company"]:
             groups[-1]["roles"].append(pos)
         else:
             groups.append({"company": pos["company"], "location": pos["location"], "roles": [pos]})
-    for g in groups:
-        g["dates_short"] = short_range(g["roles"][-1]["start"], g["roles"][0]["end"])
 
     engine_by_game = {}
     for p in master["positions"]:
@@ -292,10 +290,15 @@ def resolve(master, tailor, master_mode):
             warn(f"override '{k}' does not match any selected bullet")
 
     return {
-        "basics": master["basics"], "games": games,
+        "basics": master["basics"], "headline": headline(master, tailor), "games": games,
         "positions": positions, "groups": groups, "skills": skills, "education": education,
         "projects": projects, "meta": master_mode,
     }
+
+
+def headline(master, tailor):
+    """The line under the name: the application's own, else the master's default, else none."""
+    return (tailor.get("headline") or master["basics"].get("headline") or "").strip()
 
 
 def resume_data(master, tailor):
@@ -309,7 +312,7 @@ def letter_data(master, tailor, text):
     cl = tailor.get("cover_letter") or {}
     paragraphs = [" ".join(p.split()) for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
     data = {
-        "basics": master["basics"], "date": cl.get("date"),
+        "basics": master["basics"], "headline": headline(master, tailor), "date": cl.get("date"),
         "greeting": cl.get("greeting") or "Dear Hiring Team,",
         "closing": cl.get("closing") or "Sincerely,", "paragraphs": paragraphs,
     }

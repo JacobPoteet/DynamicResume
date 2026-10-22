@@ -2,6 +2,9 @@ target:
   studio: Sample Studio
   role: Gameplay Designer
 
+# One line under the name: a title you have held, then focus areas from the listing.
+headline: Senior Gameplay Designer | Multiplayer, Enemy Design, Design Tools
+
 positions:
   pixel-forge-sr:
     bullets: [rr-tools, rr-bots, rr-lead]
