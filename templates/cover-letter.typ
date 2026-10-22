@@ -1,19 +1,18 @@
 // Cover letter. Reads resolved JSON from `--input data=/build/<name>/cover-letter.json`.
 // Shares the header, colors, fonts and margins of the timeline resumes so the pair matches.
-#import "timeline.typ": accent, ink, muted, rule-soft, margin-x, margin-y, contact-line
+#import "timeline.typ": accent, ink, muted, rule-soft, margin-x, margin-y, header
 
 #let d = json(sys.inputs.data)
 
+#set document(title: d.basics.name + " Cover Letter", author: d.basics.name)
 #set page(paper: "us-letter", margin: (x: margin-x, y: margin-y))
 #set text(font: ("Calibri", "Arial", "Libertinus Serif"), size: 11pt, fill: ink, lang: "en")
 #set par(leading: 0.7em, spacing: 1.35em, justify: false)
 
-// Same header as the resume: bold accent name, muted contact line, then a soft rule.
+// Same header as the resume: name, headline, contact line, then a soft rule.
 #block(width: 100%, stroke: (bottom: 0.6pt + rule-soft), inset: (bottom: 9pt))[
   #set par(spacing: 0pt, leading: 0.4em)
-  #text(size: 25pt, weight: "bold", fill: accent)[#d.basics.name]
-  #v(6pt)
-  #text(size: 9.5pt, fill: muted)[#contact-line(d.basics)]
+  #header(d.basics, d.headline)
 ]
 #v(1.6em)
 

@@ -14,7 +14,12 @@
 }
 
 #let contact-line(b) = {
-  let parts = (b.email, b.phone, b.location, b.linkedin).filter(x => x != none and x != "")
+  let filled(x) = x != none and x != ""
+  let parts = (
+    if filled(b.email) { link("mailto:" + b.email, b.email) },
+    b.phone, b.location,
+    if filled(b.linkedin) { link(if b.linkedin.starts-with("http") { b.linkedin } else { "https://" + b.linkedin }, b.linkedin) },
+  ).filter(filled)
   parts.join("  |  ")
 }
 
