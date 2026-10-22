@@ -103,7 +103,8 @@ label.field { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
   height: var(--top); display: flex; align-items: center; gap: 16px; padding: 0 16px;
   background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5;
 }
-.brand { font-weight: 700; color: var(--ink); text-decoration: none; letter-spacing: 0.01em; }
+.brand { font-weight: 700; color: var(--ink); text-decoration: none; letter-spacing: 0.01em; display: inline-flex; align-items: center; gap: 8px; }
+.brand img { display: block; border-radius: 5px; }
 .top nav { display: flex; gap: 2px; }
 .top nav a { color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: var(--radius); }
 .top nav a:hover { color: var(--ink); }
