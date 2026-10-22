@@ -48,6 +48,8 @@ const S = {
   versions: null,  // file mtimes last seen, to notice outside edits
   ui: { editing: null, expanded: {}, lastSel: {}, focusReq: null },
 };
+// Tabs can veto reloading after an outside edit (unsaved typing, a running draft).
+const ON_OUTSIDE_EDIT = { blocked: () => false };
 
 // ---------- routing ----------
 
@@ -94,21 +96,27 @@ async function showHome() {
         </div>
         <label class="field">Job listing<textarea id="na-listing" rows="12" placeholder="Paste the full listing"></textarea></label>
         <div class="row" id="na-actions">
-          <button id="na-create">Create</button>
-          <span class="muted" style="font-size:12px">Starts with every priority 1 bullet selected.</span>
+          ${S.init.claude ? `<button class="primary" id="na-draft">Create and draft with Claude</button>` : ""}
+          <button id="na-create">${S.init.claude ? "Create without drafting" : "Create"}</button>
         </div>
+        <div class="muted" style="font-size:12px">${S.init.claude
+          ? "Drafting runs Claude Code in this repo with read-only access (a minute or two). It picks and orders bullets, writes a cover letter, and lists what the master cannot back up. Without drafting, every priority 1 bullet starts selected."
+          : "Starts with every priority 1 bullet selected. Install Claude Code to draft automatically."}</div>
         <div id="na-err" class="muted"></div>
       </div>
     </section>
   </div></div>`);
   $("#na-create").onclick = () => createApp(false);
+  if ($("#na-draft")) $("#na-draft").onclick = () => createApp(true);
 }
 
 async function createApp(draft) {
   const body = { studio: $("#na-studio").value, role: $("#na-role").value, listing: $("#na-listing").value };
   try {
+    if (draft && !body.listing.trim()) throw new Error("Paste the listing first so Claude has something to draft from.");
     const { name } = await api("POST", "/api/apps", body);
-    location.hash = `#/app/${enc(name)}/resume`;
+    if (draft) await api("POST", `/api/apps/${enc(name)}/draft`);
+    location.hash = `#/app/${enc(name)}/${draft ? "listing" : "resume"}`;
   } catch (e) {
     $("#na-err").innerHTML = `<span class="pill bad">${esc(e.message)}</span>`;
   }
@@ -147,6 +155,8 @@ async function loadApp(name) {
   S.previews = {};
   S.versions = v;
   S.ui.editing = null;
+  S.ui.focusReq = null;
+  if (S.init.claude) checkDraft(name);
 }
 
 async function showEditor(name, tab) {
@@ -331,8 +341,87 @@ function selected(kind, id) {
   return v === undefined ? null : v.bullets;
 }
 
+// ----- listing match: ranks the unselected bullets and drives the requirement chips -----
+
+const STOP = new Set(("about above after again along also among based being below between build built could " +
+  "design designed designer during each every first from have having into large like made make making more most " +
+  "other over same should since some such than that their them then there these they this those through under " +
+  "using very well were what when where which while will with within work worked working would years your").split(" "));
+
+function words(text) {
+  return new Set((text.toLowerCase().match(/[a-z][a-z0-9+#/-]{4,}/g) || []).filter((w) => !STOP.has(w)));
+}
+
+let listingWordsCache = { text: null, words: new Set() };
+function listingWords() {
+  if (listingWordsCache.text !== S.app.listing) listingWordsCache = { text: S.app.listing, words: words(S.app.listing) };
+  return listingWordsCache.words;
+}
+
+function requirements() {
+  return S.app?.listing_spec?.requirements || [];
+}
+
+// Claude names the bullets that back each requirement; without names, fall back to shared tags.
+function reqMatches(r, b) {
+  if (!r || !b) return false;
+  if ((r.bullets || []).length) return r.bullets.includes(b.id);
+  return (b.tags || []).some((t) => (r.tags || []).includes(t));
+}
+
 function bulletScore(b) {
-  return 0;
+  const reqs = requirements();
+  if (reqs.length) {
+    return reqs.reduce((s, r) => s + (reqMatches(r, b) ? (r.must ? 2 : 1) : 0), 0);
+  }
+  const lw = listingWords();
+  let s = 0;
+  for (const w of words(ownText(b))) if (lw.has(w)) s++;
+  for (const t of b.tags || []) if (S.app.listing.toLowerCase().includes(t.replace("-", " "))) s++;
+  return s;
+}
+
+function ownText(b) {
+  return (S.app.tailor.overrides || {})[b.id] ?? b.text;
+}
+
+function matchLabel(b) {
+  const reqs = requirements().filter((r) => reqMatches(r, b));
+  if (reqs.length) return `fits: ${reqs.slice(0, 2).map((r) => r.text).join("; ")}${reqs.length > 2 ? ` +${reqs.length - 2}` : ""}`;
+  if (requirements().length) return "";
+  const s = bulletScore(b);
+  return s > 1 ? `${s} listing words` : "";
+}
+
+function allBullets() {
+  const out = {};
+  for (const kind of ["positions", "projects"]) for (const o of S.master[kind] || []) for (const b of o.bullets || []) out[b.id] = b;
+  return out;
+}
+
+function selectedIds() {
+  const ids = new Set();
+  for (const kind of ["positions", "projects"]) for (const v of Object.values(S.app.tailor[kind] || {})) for (const id of v.bullets || []) ids.add(id);
+  return ids;
+}
+
+function reqsBlock() {
+  const reqs = requirements();
+  if (!reqs.length) {
+    return S.init.claude ? `<p class="muted" style="font-size:12px;margin:14px 0 0">Draft with Claude on the Listing tab to see which of the listing's requirements your selected bullets cover.</p>` : "";
+  }
+  const byId = allBullets();
+  const sel = [...selectedIds()].map((id) => byId[id]).filter(Boolean);
+  const covered = reqs.map((r) => sel.some((b) => reqMatches(r, b)));
+  const focus = S.ui.focusReq;
+  const chips = reqs.map((r, i) => `<button class="chip ${covered[i] ? "ok" : ""} ${r.must ? "" : "nice"} ${focus === i ? "on" : ""}"
+      data-act="req" data-i="${i}" title="${r.must ? "Required" : "Nice to have"}, ${covered[i] ? "covered" : "not covered"} by the selected bullets. Click to highlight bullets that fit.">
+      ${covered[i] ? "✓ " : ""}${esc(r.text)}${r.must ? "" : " (nice)"}</button>`).join("");
+  return `<div class="reqs" style="margin-top:14px">
+    <div class="row"><span class="muted" style="font-size:12px">Listing requirements: ${covered.filter(Boolean).length} of ${reqs.length} covered</span>
+      ${focus != null ? `<button class="ghost small" data-act="req" data-i="${focus}">Clear highlight</button>` : ""}</div>
+    <div class="chips">${chips}</div>
+  </div>`;
 }
 
 function sortRest(bullets) {
@@ -349,7 +438,7 @@ function renderResumeLeft() {
       <label class="field">Studio (used in PDF names)<input data-field="studio" value="${esc(tg.studio)}"></label>
       <label class="field">Role<input data-field="role" value="${esc(tg.role)}"></label>
     </div>`;
-  html += TOP_BLOCKS.map((f) => f()).join("");
+  html += reqsBlock();
   if ((m.games || []).length) html += sec("Games", (t.template || S.init.default_template) === "resume-games" ? "" : "only resume-games shows this section") + gamesBlock();
   html += sec("Experience", "drag selected bullets to reorder") + m.positions.map((p) => ownerBlock(p, "positions")).join("");
   if ((m.projects || []).length) html += sec("Personal projects") + m.projects.map((p) => ownerBlock(p, "projects")).join("");
@@ -361,8 +450,6 @@ function renderResumeLeft() {
     ta.setSelectionRange(ta.value.length, ta.value.length);
   }
 }
-
-const TOP_BLOCKS = [];
 
 function sec(title, hint = "") {
   return `<div class="sec"><h2>${esc(title)}</h2>${hint ? `<span class="faint" style="font-size:12px">${esc(hint)}</span>` : ""}</div>`;
@@ -379,7 +466,8 @@ function ownerBlock(p, kind) {
   const sub = kind === "positions"
     ? [p.product, p.engine, `${p.start} to ${p.end}`].filter(Boolean).join(" · ")
     : p.summary || "";
-  const open = on || S.ui.expanded[p.id];
+  const focus = S.ui.focusReq != null ? requirements()[S.ui.focusReq] : null;
+  const open = on || S.ui.expanded[p.id] || (focus && bullets.some((b) => reqMatches(focus, b)));
   const rows = !open ? "" : `<ul data-kind="${kind}" data-owner="${esc(p.id)}">
     ${chosen.map((b) => bulletRow(b, kind, p.id, true)).join("")}
     ${on && rest.length ? `<li class="divider">Not selected</li>` : ""}
@@ -416,8 +504,8 @@ function bulletRow(b, kind, owner, isSel) {
       </div>
     </li>`;
   }
-  const score = bulletScore(b);
-  const reqHit = S.ui.focusReq && reqMatches(S.ui.focusReq, b);
+  const label = isSel ? "" : matchLabel(b);
+  const reqHit = S.ui.focusReq != null && reqMatches(requirements()[S.ui.focusReq], b);
   return `<li class="b ${isSel ? "sel" : ""} ${reqHit ? "hl" : ""}" ${attrs} ${isSel ? `draggable="true"` : ""}>
     <span class="grip" title="Drag to reorder">⠿</span>
     <input type="checkbox" data-act="bullet" ${isSel ? "checked" : ""}>
@@ -426,15 +514,11 @@ function bulletRow(b, kind, owner, isSel) {
       <div class="meta">
         <code>${esc(b.id)}</code><span>p${b.priority ?? 3}</span><span>${esc((b.tags || []).join(", "))}</span>
         ${ov != null ? `<span class="ov">edited for this application</span>` : ""}
-        ${!isSel && score > 0 ? `<span class="score">matches listing (${score})</span>` : ""}
+        ${label ? `<span class="score">${esc(label)}</span>` : ""}
       </div>
     </div>
     <span class="acts"><button class="ghost small" data-act="edit" title="Edit text">Edit</button></span>
   </li>`;
-}
-
-function reqMatches() {
-  return false;
 }
 
 function gamesBlock() {
@@ -658,6 +742,197 @@ document.addEventListener("dragend", () => {
   document.querySelectorAll(".dragging,.drop-before,.drop-after").forEach((x) => x.classList.remove("dragging", "drop-before", "drop-after"));
 });
 
+// ---------- listing tab ----------
+
+TABS.listing = { left: renderListingLeft, preview: "resume" };
+
+CLICK_ACTIONS.req = (el) => {
+  const i = Number(el.dataset.i);
+  S.ui.focusReq = S.ui.focusReq === i ? null : i;
+  TABS[S.tab].left();
+};
+
+function renderListingLeft() {
+  const sp = S.app.listing_spec;
+  const reqs = sp?.requirements || [];
+  $("#left").innerHTML = `<div class="stack listing">
+    ${S.init.claude ? `<section class="card">
+      <div class="hd"><h2>Draft with Claude</h2><span class="grow"></span><span id="draft-btn"></span></div>
+      <div class="bd" id="draft-box"></div>
+    </section>` : ""}
+    ${sp && (sp.notes || (sp.gaps || []).length) ? `<section class="card">
+      <div class="hd"><h2>Claude's notes</h2><span class="grow"></span><span class="faint" style="font-size:12px">${esc(sp.drafted || "")}</span></div>
+      <div class="bd stack">
+        ${sp.notes ? `<p style="margin:0">${esc(sp.notes)}</p>` : ""}
+        ${(sp.gaps || []).length ? `<div><strong>The master cannot back these up yet</strong>
+          <ul class="gaps">${sp.gaps.map((g) => `<li>${esc(g)}</li>`).join("")}</ul>
+          <p class="muted" style="font-size:12px;margin:6px 0 0">If you have done these things, add bullets on the <a href="#/master">Master</a> page, then tick them on the Resume tab.</p></div>` : ""}
+      </div>
+    </section>` : ""}
+    <section class="card">
+      <div class="hd"><h2>Requirements</h2><span class="grow"></span><span class="faint" style="font-size:12px">drive the chips and bullet ranking on the Resume tab</span></div>
+      <div class="bd">
+        ${reqs.length ? `<div class="req-row faint" style="font-size:11px"><span title="Required">Req.</span><span>Requirement</span><span>Tags</span><span></span></div>` : ""}
+        ${reqs.map((r, i) => `<div class="req-row" data-i="${i}">
+          <input type="checkbox" data-req="must" ${r.must ? "checked" : ""} title="Required (unticked = nice to have)">
+          <input type="text" data-req="text" value="${esc(r.text)}">
+          <input type="text" data-req="tags" value="${esc((r.tags || []).join(", "))}" placeholder="tags">
+          <button class="ghost small" data-act="req-del" title="Remove">✕</button>
+        </div>`).join("")}
+        <div class="row" style="margin-top:8px"><button class="small" data-act="req-add">Add requirement</button>
+          ${reqs.length ? "" : `<span class="muted" style="font-size:12px">None yet. Drafting with Claude fills these in from the listing.</span>`}</div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="hd"><h2>Listing</h2><span class="grow"></span><span class="faint" style="font-size:12px">listing.md</span></div>
+      <div class="bd"><textarea class="raw" id="listing-text">${esc(S.app.listing)}</textarea></div>
+    </section>
+  </div>`;
+  renderDraftBox();
+}
+
+function ensureSpec() {
+  const tg = S.app.tailor.target || {};
+  if (!S.app.listing_spec) S.app.listing_spec = { studio: tg.studio || "", role: tg.role || "", requirements: [], gaps: [], notes: "" };
+  S.app.listing_spec.requirements = S.app.listing_spec.requirements || [];
+  return S.app.listing_spec;
+}
+
+CLICK_ACTIONS["req-add"] = () => {
+  ensureSpec().requirements.push({ text: "", must: true, tags: [], bullets: [] });
+  renderListingLeft();
+  queueListingSave("spec");
+  [...document.querySelectorAll("[data-req=text]")].pop()?.focus();
+};
+CLICK_ACTIONS["req-del"] = (el) => {
+  ensureSpec().requirements.splice(Number(el.closest(".req-row").dataset.i), 1);
+  S.ui.focusReq = null;
+  renderListingLeft();
+  queueListingSave("spec");
+};
+
+function onListingInput(el) {
+  if (el.id === "listing-text") {
+    S.app.listing = el.value;
+    return queueListingSave("text");
+  }
+  const r = ensureSpec().requirements[Number(el.closest(".req-row").dataset.i)];
+  if (el.dataset.req === "must") r.must = el.checked;
+  if (el.dataset.req === "text") r.text = el.value;
+  if (el.dataset.req === "tags") r.tags = el.value.split(",").map((t) => t.trim()).filter(Boolean);
+  queueListingSave("spec");
+}
+document.addEventListener("input", (e) => {
+  if (S.app && (e.target.id === "listing-text" || (e.target.dataset.req && e.target.dataset.req !== "must"))) onListingInput(e.target);
+});
+document.addEventListener("change", (e) => {
+  if (S.app && e.target.dataset.req === "must") onListingInput(e.target);
+});
+
+let listingTimer = null;
+const listingDirty = new Set();
+function queueListingSave(what) {
+  listingDirty.add(what);
+  status("Unsaved changes");
+  clearTimeout(listingTimer);
+  listingTimer = setTimeout(saveListing, 600);
+}
+async function saveListing() {
+  clearTimeout(listingTimer);
+  if (!listingDirty.size || !S.app) return;
+  const body = {};
+  if (listingDirty.has("text")) body.text = S.app.listing;
+  if (listingDirty.has("spec")) body.spec = S.app.listing_spec;
+  listingDirty.clear();
+  try {
+    const r = await api("PUT", `/api/apps/${enc(S.app.name)}/listing`, body);
+    S.versions = { ...S.versions, ...r.versions };
+    status("Saved");
+  } catch (e) {
+    toast(esc(e.message), true);
+  }
+}
+
+// ----- draft job -----
+
+let draftTimer = null;
+S.draft = {};
+
+function renderDraftBox() {
+  const box = $("#draft-box");
+  if (!box) return;
+  const j = S.draft[S.app.name] || { state: "idle" };
+  const redraft = !!S.app.listing_spec?.drafted;
+  const running = j.state === "running";
+  $("#draft-btn").innerHTML = running
+    ? `<button class="small" data-act="draft-cancel">Cancel</button>`
+    : `<button class="small primary" data-act="draft-start">${redraft ? "Redraft" : "Draft with Claude"}</button>`;
+  const secs = Math.round(((j.finished || Date.now() / 1000) - (j.started || 0)));
+  let html = `<p class="muted" style="margin:0;font-size:13px">Claude Code reads the master and this listing with read-only access, picks and orders bullets,
+    rewords a few where it helps, writes a cover letter, and lists anything the master cannot back up. It follows CLAUDE.md and your local rules.
+    ${redraft ? " Redrafting replaces the current bullet choices, overrides and cover letter; a snapshot is taken first." : ""}</p>`;
+  if (running) html = `<div class="row"><span class="pill">Drafting… ${secs} s</span><span class="muted" style="font-size:12px">usually one to three minutes</span></div>`;
+  if (j.state === "error") html += `<p><span class="pill bad">Draft failed</span> ${esc(j.error)}</p>`;
+  if (j.state === "done") html += `<p><span class="pill good">Draft written</span> ${j.result?.warnings?.length ? esc(j.result.warnings.join("; ")) : ""}</p>`;
+  if (running || j.state === "error") html += `<div class="draft-log mono">${j.log.map(esc).join("\n")}</div>`;
+  box.innerHTML = html;
+}
+
+CLICK_ACTIONS["draft-start"] = async () => {
+  if (S.app.listing_spec?.drafted && !confirm("Redraft? This replaces the bullet choices, overrides and cover letter. A snapshot is taken first.")) return;
+  await saveNow();
+  await saveListing();
+  try {
+    S.draft[S.app.name] = await api("POST", `/api/apps/${enc(S.app.name)}/draft`);
+    renderDraftBox();
+    watchDraft(S.app.name);
+  } catch (e) {
+    toast(esc(e.message), true);
+  }
+};
+CLICK_ACTIONS["draft-cancel"] = async () => {
+  S.draft[S.app.name] = await api("POST", `/api/apps/${enc(S.app.name)}/draft/cancel`);
+  renderDraftBox();
+};
+
+function watchDraft(name) {
+  clearInterval(draftTimer);
+  draftTimer = setInterval(async () => {
+    let j;
+    try {
+      j = await api("GET", `/api/apps/${enc(name)}/draft`);
+    } catch {
+      return;
+    }
+    S.draft[name] = j;
+    if (S.app?.name === name) renderDraftBox();
+    if (j.state === "running") return;
+    clearInterval(draftTimer);
+    if (j.state === "done" && S.app?.name === name) {
+      await loadApp(name);
+      S.draft[name] = j;
+      location.hash = `#/app/${enc(name)}/resume`;
+      showEditor(name, "resume");
+      toast(`Draft ready.${j.result?.notes ? ` ${esc(j.result.notes)}` : ""}`, false, 9000);
+    } else if (j.state === "error") {
+      toast(`Draft failed: ${esc(j.error)}`, true, 9000);
+    }
+  }, 1500);
+}
+
+async function checkDraft(name) {
+  try {
+    const j = await api("GET", `/api/apps/${enc(name)}/draft`);
+    S.draft[name] = j;
+    if (j.state === "running") watchDraft(name);
+    renderDraftBox();
+  } catch { /* the draft box just stays idle */ }
+}
+
+ON_OUTSIDE_EDIT.blocked = () =>
+  listingDirty.size > 0 || S.draft[S.app?.name]?.state === "running" ||
+  !!document.activeElement?.closest?.("#left") && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.type !== "checkbox";
+
 // ---------- master ----------
 
 async function showMaster() {
@@ -742,7 +1017,6 @@ async function pollVersions() {
   showEditor(name, S.tab);
   toast("Reloaded: files changed on disk");
 }
-const ON_OUTSIDE_EDIT = { blocked: () => false };
 
 // ---------- start ----------
 

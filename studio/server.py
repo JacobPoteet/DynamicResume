@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import build
 from build import ROOT, BuildError
+from studio.draft import Drafts, claude_path
 from studio.workspace import Workspace
 
 STATIC = Path(__file__).parent / "static"
@@ -30,6 +31,7 @@ class Studio:
         self.ws = Workspace(example)
         self.typst = build.find_typst()
         self.build_dir = ROOT / "build" / ("studio-example" if example else "studio")
+        self.drafts = Drafts(self.ws, LOCK, self.build_dir)
 
     def versions(self, name=None):
         """Newest modification time of what a preview depends on, so the page can notice
@@ -95,7 +97,7 @@ def route(method, pattern):
 @route("GET", "/api/init")
 def init(s, body, q):
     return {"example": s.example, "templates": build.templates(), "default_template": build.DEFAULT_TEMPLATE,
-            "apps_rel": s.ws.apps_dir.relative_to(ROOT).as_posix()}
+            "apps_rel": s.ws.apps_dir.relative_to(ROOT).as_posix(), "claude": bool(claude_path())}
 
 
 @route("GET", "/api/versions")
@@ -136,6 +138,31 @@ def get_preview(s, body, q, name, kind):
 @route("POST", "/api/apps/([^/]+)/finalize")
 def finalize(s, body, q, name):
     return s.finalize(name)
+
+
+@route("PUT", "/api/apps/([^/]+)/listing")
+def put_listing(s, body, q, name):
+    with LOCK:
+        if "text" in body:
+            s.ws.save_text(name, "listing.md", body["text"])
+        if "spec" in body:
+            s.ws.save_listing_spec(name, body["spec"])
+    return {"versions": s.versions(name)}
+
+
+@route("GET", "/api/apps/([^/]+)/draft")
+def draft_status(s, body, q, name):
+    return s.drafts.status(name)
+
+
+@route("POST", "/api/apps/([^/]+)/draft")
+def draft_start(s, body, q, name):
+    return s.drafts.start(name)
+
+
+@route("POST", "/api/apps/([^/]+)/draft/cancel")
+def draft_cancel(s, body, q, name):
+    return s.drafts.cancel(name)
 
 
 @route("GET", "/api/master")

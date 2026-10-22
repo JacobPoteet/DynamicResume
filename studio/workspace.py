@@ -131,7 +131,7 @@ def merge(old, new):
     if isinstance(new, list):
         olds = list(old) if isinstance(old, CommentedSeq) else []
         if all(_scalar(v) for v in new):
-            if olds == new:
+            if isinstance(old, CommentedSeq) and olds == new:
                 return old
             items = list(new)
         else:

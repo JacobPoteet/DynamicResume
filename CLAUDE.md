@@ -23,6 +23,10 @@ The app and the CLI read and write the same files, so either can be used at any 
 
 ## Tailoring workflow (when the user pastes a job listing)
 
+In the app, "Create and draft with Claude" (or Redraft on the Listing tab) runs this workflow headlessly: `studio/draft.py` starts `claude -p` in the repo with read-only tools, so this file and `CLAUDE.local.md` apply. Claude answers with one JSON object (listing requirements, tailor, cover letter body, gaps, notes); the app drops any id the master does not have and writes `listing.yaml`, `tailor.yaml` and `cover-letter.md`. Claude's raw reply is kept in `build/studio/<app>/draft-reply.txt`. Redrafting takes a snapshot first.
+
+When tailoring from a chat instead, follow these steps and also write `listing.yaml` so the app can show requirement coverage:
+
 1. Create `applications/<studio>-<role>/` (lowercase, hyphens).
 2. Save the listing as `listing.md`.
 3. Read `data/master.yaml`. Pick bullets by tag match against the listing, then priority (1 = strongest). Order bullets within each position by relevance to the listing, not by priority alone.
@@ -93,10 +97,28 @@ cover_letter: {greeting, closing, date}       # all optional
 
 An unknown id is a build error. An override that matches no selected bullet, or a top-level key the build does not use, is a warning.
 
+## listing.yaml schema
+
+Written by a Claude draft and editable on the Listing tab. The build ignores it; the app uses it for the requirement chips (covered or not by the selected bullets) and to rank unselected bullets.
+
+```yaml
+studio, role
+requirements:
+  - text: Design enemy behaviors and boss encounters   # under 8 words
+    must: true                                         # false = nice to have
+    tags: [game-ai]                                    # master tags it relates to
+    bullets: [dd-enemies]                              # master bullet ids that back it up
+gaps: [things the listing asks for that the master cannot back up]
+notes: what the draft led with and why
+drafted: YYYY-MM-DD HH:MM
+```
+
+A requirement with `bullets` counts as covered when one of them is selected; one without falls back to shared tags.
+
 ## Files
 
 - `build.py`: merge, lint, compile, page fill. Each template ends with a `<layout>` metadata label (page count, where the content ends, the usable area) that `build.py` queries. Errors raise `BuildError`; `collect_warnings()` gathers warnings for the app.
-- `studio/`: the editor app. `server.py` (standard library HTTP server, JSON API, 127.0.0.1 only), `workspace.py` (application folders, round-trip YAML merge, master history, snapshots), `static/` (one HTML page, plain JS and CSS, no build step).
+- `studio/`: the editor app. `server.py` (standard library HTTP server, JSON API, 127.0.0.1 only), `draft.py` (headless Claude Code drafts), `workspace.py` (application folders, round-trip YAML merge, master history, snapshots), `static/` (one HTML page, plain JS and CSS, no build step).
 - `templates/timeline.typ` (shared), `resume-games.typ`, `resume-inline.typ`: resumes grouped by company, so several roles at one company sit under one heading. `resume-games` (the default) has a Games section; `resume-inline` puts each game on its role line. Pick one with `template:` in `tailor.yaml`, in the app, or try one with `python build.py build <app> --template resume-inline` (that trial PDF goes to `build/<app>/`, not the application folder). No template has a summary.
 - `templates/common.typ`: shared header band, fonts, page setup for the older `resume.typ` and for `cover-letter.typ`. All templates read `sys.inputs.data` (resolved JSON in `build/`).
 - Keep resumes ATS friendly: single column, real text, no icons, standard section names.
