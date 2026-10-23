@@ -42,8 +42,11 @@ requirements:
     must: false
     tags: [mentorship]
     bullets: [rr-mentor]
+# Each gap's topic lets Master > Gaps count the same gap across applications.
 gaps:
-  - No bullet shows work with animation or VFX teams
-  - Unreal Engine 5 is listed in skills, but every Unreal bullet is from an Unreal Engine 4 project
+  - text: No bullet shows work with animation or VFX teams
+    topic: animation-vfx
+  - text: Unreal Engine 5 is listed in skills, but every Unreal bullet is from an Unreal Engine 4 project
+    topic: unreal-engine-5
 notes: Led with Dungeon Delvers enemies, bosses, and abilities since the role is combat on a co-op game, then Robo Racers for balancing from playtest and live data. Fox Den is kept short since it predates the combat work.
 drafted: 2026-10-23 09:30

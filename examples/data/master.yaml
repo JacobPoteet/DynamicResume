@@ -35,6 +35,8 @@ positions:
     bullets:
       - id: rr-lead
         text: Led design for the ranked multiplayer mode from prototype through launch, including matchmaking rules, seasons, and rank rewards
+        # Optional tighter wording; a tailor.yaml lists the id under `short` to use it.
+        short: Led design for the ranked multiplayer mode from prototype through launch, including matchmaking and seasons
         tags: [leadership, multiplayer, unity]
         priority: 1
       - id: rr-tools
@@ -53,6 +55,13 @@ positions:
         text: Ran weekly live events with rotating track modifiers, and used retention and completion data to decide which modifiers and rewards came back
         tags: [live-service, analytics, balancing]
         priority: 1
+      # Another version of rr-live for listings that ask for data science. variant_of makes
+      # selecting both a build error, and the editor unticks one when you tick the other.
+      - id: rr-live-model
+        text: Ran weekly live events with rotating track modifiers, picking which came back with a retention model I built with the analytics team
+        variant_of: rr-live
+        tags: [live-service, analytics, research]
+        priority: 2
       - id: rr-playtests
         text: Set up a weekly playtest loop with QA and turned each round of findings into a tuning pass
         tags: [playtesting, process, collaboration]

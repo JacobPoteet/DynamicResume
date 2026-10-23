@@ -27,7 +27,15 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 **A live editor.** Tick bullets on and off, drag them into order, double-click to reword one for this application only, switch templates, and edit the cover letter, with the PDF preview rebuilding as you go. A fill meter shows how full the page is and how many lines are free.
 
-**One page, enforced.** Every build reports the page count and how full the last page is, and warns when a resume runs past one page. The fix is always to cut or reword, never to shrink the font.
+**One page, enforced.** Every build reports the page count and how full the last page is. When a resume runs over, it says about how many lines to cut. The template measures every bullet, so the editor shows each one's line count and flags bullets whose last line is nearly empty, where trimming a few words saves a whole line. It also warns when a role line or the headline wraps. The fix is always to cut or reword, never to shrink the font.
+
+**Short versions and variants.** A master bullet can carry a `short:` wording that any application switches on with one click, instead of pasting the same shorter override into several applications. A bullet marked `variant_of` another is an alternative version of it (say, one that mentions machine learning for the listings that ask). The editor unticks one when you tick the other, and the build refuses both.
+
+**Impact check.** After every master save, the app rebuilds each application into `build/check/` and lists the ones whose page count or fill changed, so lengthening a bullet or renaming a game never pushes one to two pages unnoticed. `python build.py check` does the same from the command line.
+
+**Recurring gaps.** Each draft lists what the listing asks for that your master cannot back up, with a short topic. Master, Gaps ranks those topics across every application, so you know which bullets are worth writing next.
+
+**Studio notes.** Notes about a studio (games of theirs you've played, people you know there) live in `data/studios.yaml`, are edited on the Listing tab, and go into the draft for the cover letter.
 
 **Writing lint.** Builds flag em dashes and filler phrases ("leverage", "passionate about", "spearhead" and others) in resume and letter text.
 
@@ -65,10 +73,13 @@ Drafting needs [Claude Code](https://claude.com/claude-code) installed and signe
 3. Review the draft: check the requirement chips, swap bullets, reword where it helps, and fill the page.
 4. Build PDFs, then check the build output says one page for both files.
 5. After you send them, choose Mark submitted so later master changes never rebuild what the studio has.
+6. When you edit the master, read the impact panel (or run `python build.py check`) before building.
 
 Run `python build.py build master` to render the whole pool on several pages with each bullet's id, priority and tags, which makes the master easy to review.
 
-You can also tailor without the app: make `applications/<studio>-<role>/` with `tailor.yaml`, `listing.md` and `cover-letter.md` (copy them from `examples/applications/`), then run `python build.py build <studio>-<role>`.
+You can also tailor without the app: `python build.py new "<studio>" "<role>" --listing listing.txt` makes the folder, and `python build.py draft <studio>-<role>` runs the same Claude draft the app does and builds the PDFs. Or write `tailor.yaml` and `cover-letter.md` yourself (copy them from `examples/applications/`) and run `python build.py build <studio>-<role>`.
+
+If you develop in git worktrees, the code in a worktree reads and writes the main checkout's `data/`, `applications/`, `Local/` and `snapshots/`, so there is one copy of your data. Set `DYNAMICRESUME_HOME` to keep it somewhere else.
 
 Personal rules for Claude, such as how to describe a project you can't name or which jobs to leave off, go in a gitignored `CLAUDE.local.md` at the repo root. Drafts follow it alongside `CLAUDE.md`.
 
@@ -78,7 +89,10 @@ Personal rules for Claude, such as how to describe a project you can't name or w
 python build.py serve                 # editor app at http://127.0.0.1:8765
 python build.py build <app-folder>    # one application, by name under applications/ or a path
 python build.py build master          # the full pool, with ids, priorities and tags
-python build.py build-all             # every application
+python build.py build-all             # every application except submitted ones
+python build.py check                 # rebuild everything into build/check/ and report page changes
+python build.py new "<studio>" "<role>" [--listing file|-]   # start an application
+python build.py draft <app>           # draft it with Claude Code, then build
 python build.py snapshot [label]      # zip the master, applications and templates into snapshots/
 python build.py submit <app> [--date YYYY-MM-DD]   # freeze the PDFs as sent; builds skip it from then on
 python build.py unsubmit <app>        # make a submitted application editable again

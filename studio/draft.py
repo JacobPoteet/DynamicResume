@@ -1,18 +1,20 @@
 """Draft an application with headless Claude Code (`claude -p`).
 
-Claude runs in the repo, so it picks up CLAUDE.md and CLAUDE.local.md (the tailoring
-workflow and writing rules) on its own. It gets read-only tools and answers with one
+Claude runs in the folder that holds your data (the main checkout when this code runs in a
+git worktree), so it picks up CLAUDE.md and CLAUDE.local.md (the tailoring workflow and
+writing rules) on its own. It gets read-only tools and answers with one
 JSON object; the app checks every id against the master and writes listing.yaml,
 tailor.yaml and cover-letter.md. Uses the Claude Code login, so no API key.
 """
 import json
+import re
 import shutil
 import subprocess
 import threading
 import time
 
 import build
-from build import ROOT, BuildError
+from build import BuildError
 
 TIMEOUT_S = 600
 READ_ONLY = ["Read", "Glob", "Grep"]
@@ -21,7 +23,7 @@ DENY = ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent
 PROMPT = """You are drafting a job application in this DynamicResume repo. Follow CLAUDE.md, and
 CLAUDE.local.md if it exists: its tailoring workflow, writing rules and personal rules all apply.
 
-Read {master} (the master career data) and {listing} (the job listing).{existing}
+Read {master} (the master career data) and {listing} (the job listing).{existing}{studio}
 
 Do not create or edit any files. Reply with only one JSON object, no prose and no code fence:
 {{
@@ -34,7 +36,7 @@ Do not create or edit any files. Reply with only one JSON object, no prose and n
   }},
   "tailor": {{ "the tailor.yaml content as JSON, per the schema in CLAUDE.md" }},
   "cover_letter": "the letter body, paragraphs separated by a blank line, no greeting or closing",
-  "gaps": ["each thing the listing asks for that the master cannot back up"],
+  "gaps": [{{"text": "something the listing asks for that the master cannot back up", "topic": "short-topic"}}],
   "notes": "two or three sentences: which bullets you led with and why"
 }}
 
@@ -49,6 +51,10 @@ Do not create or edit any files. Reply with only one JSON object, no prose and n
 - Size: a full page is usually 17 to 21 bullets across positions and projects. Aim to fill the page
   without going over; the user fine-tunes it in the editor afterwards.
 - Never invent experience, metrics, tools or titles. Put anything the master cannot support in gaps.
+- A bullet with variant_of is another version of the bullet it names: select one of the two, never both.
+  A bullet with a short text can be used in its shorter form by listing its id in tailor "short".
+- gaps: give each a topic of one to three lowercase words joined by hyphens, so the same gap can be
+  counted across applications. Reuse one of these existing topics when it fits: {topics}.
 """
 
 
@@ -93,13 +99,18 @@ class Drafts:
         return self.status(name)
 
     def _prompt(self, app):
-        rel = lambda p: p.relative_to(ROOT).as_posix()
+        rel = lambda p: p.relative_to(self.ws.home).as_posix()
         existing = ""
         if (app / "tailor.yaml").exists():
             existing = (f"\n\n{rel(app / 'tailor.yaml')} is the current selection. Replace it with your best "
                         "draft, but keep any wording in its overrides that still fits.")
+        tailor = build.load_yaml(app / "tailor.yaml") if (app / "tailor.yaml").exists() else {}
+        notes = self.ws.studio_notes((tailor.get("target") or {}).get("studio"))
+        studio = (f"\n\nYour notes about this studio, from {rel(self.ws.studios_path)}, for the cover letter "
+                  f"(use only what fits; never invent more):\n{notes}") if notes else ""
         return PROMPT.format(master=rel(self.ws.master_path), listing=rel(app / "listing.md"),
-                             existing=existing, template=build.DEFAULT_TEMPLATE)
+                             existing=existing, studio=studio, template=build.DEFAULT_TEMPLATE,
+                             topics=", ".join(self.ws.gap_topics()) or "none yet")
 
     def _run(self, name, exe, job):
         app = self.ws.apps_dir / name
@@ -107,7 +118,7 @@ class Drafts:
                "--strict-mcp-config", "--allowedTools", *READ_ONLY, "--disallowedTools", *DENY]
         log = job["log"]
         try:
-            proc = subprocess.Popen(cmd, cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            proc = subprocess.Popen(cmd, cwd=self.ws.home, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True, encoding="utf-8")
             job["proc"] = proc
             killer = threading.Timer(TIMEOUT_S, proc.kill)
@@ -126,7 +137,7 @@ class Drafts:
                         if part.get("type") == "tool_use":
                             inp = part.get("input", {})
                             target = inp.get("file_path") or inp.get("pattern") or inp.get("path") or ""
-                            target = str(target).replace(str(ROOT), "").replace("\\", "/").lstrip("/")
+                            target = str(target).replace(str(self.ws.home), "").replace("\\", "/").lstrip("/")
                             log.append(f"{part.get('name')} {target}")
                 elif msg.get("type") == "result":
                     result = msg
@@ -174,7 +185,7 @@ class Drafts:
                          "bullets": [b for b in r.get("bullets") or [] if b in known]})
         listing = {"studio": spec.get("studio") or tailor["target"].get("studio", ""),
                    "role": spec.get("role") or tailor["target"].get("role", ""),
-                   "requirements": reqs, "gaps": [str(g) for g in out.get("gaps") or []],
+                   "requirements": reqs, "gaps": [g for g in map(clean_gap, out.get("gaps") or []) if g],
                    "notes": str(out.get("notes") or ""), "drafted": time.strftime("%Y-%m-%d %H:%M")}
         app = self.ws.app_dir(name)
         if (app / "listing.yaml").exists():
@@ -191,15 +202,32 @@ class Drafts:
         return {"warnings": warnings, "notes": listing["notes"], "gaps": listing["gaps"]}
 
 
+def clean_gap(g):
+    """A gap as {text, topic}, or a plain string when it has no topic."""
+    if not isinstance(g, dict):
+        return str(g).strip()
+    text = str(g.get("text") or "").strip()
+    topic = re.sub(r"[^a-z0-9]+", "-", str(g.get("topic") or "").lower()).strip("-")
+    return {"text": text, "topic": topic} if text and topic else text
+
+
 def parse_json(text):
-    """The JSON object in Claude's reply, tolerating a code fence or a stray sentence."""
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end < start:
+    """The JSON object in Claude's reply, tolerating a code fence, a stray sentence, or an
+    object closed one brace early with more keys after it ({"a": 1}, "b": 2})."""
+    start = text.find("{")
+    if start < 0:
         raise BuildError(f"Claude's reply had no JSON object: {text[:200]!r}")
     try:
-        return json.loads(text[start:end + 1])
+        obj, end = json.JSONDecoder().raw_decode(text, start)
     except ValueError as e:
-        raise BuildError(f"Claude's reply was not valid JSON ({e}): {text[:200]!r}")
+        raise BuildError(f"Claude's reply was not valid JSON ({e}): {text[start:start + 200]!r}")
+    rest = text[end:].strip().removesuffix("```").strip()
+    if isinstance(obj, dict) and rest.startswith(","):
+        try:
+            obj.update(json.loads("{" + rest[1:]))
+        except ValueError:
+            pass  # trailing text that is not more keys: keep what parsed
+    return obj
 
 
 def clean_tailor(master, t, warnings):
@@ -243,6 +271,10 @@ def clean_tailor(master, t, warnings):
     overrides = {k: str(v) for k, v in (t.get("overrides") or {}).items() if k in chosen}
     if overrides:
         out["overrides"] = overrides
+    has_short = {b["id"] for o in master["positions"] + master.get("projects", []) for b in o.get("bullets") or [] if b.get("short")}
+    short = [i for i in t.get("short") or [] if i in chosen and i in has_short]
+    if short:
+        out["short"] = short
     cl = {k: str(v) for k, v in (t.get("cover_letter") or {}).items() if k in ("greeting", "closing", "date") and v}
     if cl:
         out["cover_letter"] = cl

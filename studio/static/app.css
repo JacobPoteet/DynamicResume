@@ -257,6 +257,12 @@ label.field { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
 .warnings li { font-size: 12px; background: var(--warn-soft); color: var(--warn); padding: 4px 8px; border-radius: var(--radius); }
 .warnings li.err { background: var(--bad-soft); color: var(--bad); white-space: pre-wrap; }
 .pages { display: grid; gap: 14px; }
+.b .meta .fit { color: var(--faint); }
+.b .meta .tight { color: var(--warn); background: var(--warn-soft); border-radius: 99px; padding: 0 6px; }
+.b .meta button.short { padding: 0 6px; font-size: 11px; }
+.b .meta button.short[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.mb .short-in { width: 100%; margin-top: 4px; font-size: 12px; }
+#impact .impact, .gap-items { margin: 0; padding-left: 32px; display: grid; gap: 6px; }
 .sent-pdf { width: 100%; height: calc(100vh - var(--top) - 150px); min-height: 480px; border: 1px solid var(--line); border-radius: 2px; background: #fff; display: block; }
 .sent-note { background: var(--good-soft); color: var(--good); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
 .pane.left[inert] > :not(.sent-note) { opacity: 0.7; }
