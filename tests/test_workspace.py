@@ -157,6 +157,18 @@ def test_create_app_starts_from_priority_one_bullets(ws):
         ws.create_app("Test Forge", "Combat Designer", "")
 
 
+def test_create_app_never_picks_a_variant_with_its_partner(ws):
+    m = ws.master()
+    variant = next(b for b in m["positions"][0]["bullets"] if b["id"] == "rr-live-model")
+    variant["priority"] = 1  # rr-live, the plain version, is priority 1 too
+    ws.save_master(m)
+    name = ws.create_app("Test Forge", "Live Designer", "")
+    t = build.load_yaml(ws.apps_dir / name / "tailor.yaml")
+    ids = t["positions"]["pixel-forge-sr"]["bullets"]
+    assert "rr-live" in ids and "rr-live-model" not in ids
+    build.resolve(ws.master(), t, False)  # the starter builds
+
+
 @pytest.mark.parametrize("name", ["../data", "a/b", "", ".hidden"])
 def test_app_names_cannot_escape_the_folder(ws, name):
     with pytest.raises(build.BuildError):
