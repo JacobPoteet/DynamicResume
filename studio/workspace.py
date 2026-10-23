@@ -299,11 +299,15 @@ class Workspace:
         return name
 
     def starter_tailor(self, studio, role):
-        """Every position with its priority 1 bullets: a starting point to edit from."""
+        """Every position with its priority 1 bullets: a starting point to edit from.
+        A variant is left out when the bullet it is a version of is also picked, so the
+        starter always builds."""
         master = self.master()
         positions = {}
         for p in master["positions"]:
-            ids = [b["id"] for b in p.get("bullets") or [] if b.get("priority", 3) == 1]
+            top = [b for b in p.get("bullets") or [] if b.get("priority", 3) == 1]
+            picked = {b["id"] for b in top}
+            ids = [b["id"] for b in top if b.get("variant_of") not in picked]
             positions[p["id"]] = {"bullets": ids}
         return {"target": {"studio": studio, "role": role}, "template": build.DEFAULT_TEMPLATE,
                 "positions": positions}
