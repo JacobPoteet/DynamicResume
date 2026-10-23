@@ -6,6 +6,7 @@ Claude Code can all work on one application.
 """
 import json
 import re
+import shutil
 import threading
 import time
 import traceback
@@ -122,6 +123,16 @@ def get_app(s, body, q, name):
     return s.ws.load_app(name)
 
 
+@route("DELETE", "/api/apps/([^/]+)")
+def delete_app(s, body, q, name):
+    if s.drafts.status(name).get("state") == "running":
+        raise BuildError("a Claude draft is running for this application; cancel it first")
+    with LOCK:
+        r = s.ws.delete_app(name)
+        shutil.rmtree(s.build_dir / name, ignore_errors=True)
+    return r
+
+
 @route("PUT", "/api/apps/([^/]+)/tailor")
 def put_tailor(s, body, q, name):
     s.ws.app_dir(name)
@@ -225,6 +236,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         self.handle_request("PUT")
+
+    def do_DELETE(self):
+        self.handle_request("DELETE")
 
     def send(self, code, data, ctype):
         self.send_response(code)

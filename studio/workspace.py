@@ -7,6 +7,7 @@ import copy
 import io
 import json
 import re
+import shutil
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -310,6 +311,14 @@ class Workspace:
             "letter": self._read_text(app / "cover-letter.md"),
             "pdfs": self.pdf_status(app, tailor),
         }
+
+    def delete_app(self, name):
+        """Remove an application folder, PDFs included. Takes a snapshot first, which keeps
+        everything but the PDFs (a rebuild makes those again)."""
+        app = self.app_dir(name)
+        backup = self.create_snapshot(f"before-delete-{name}")
+        shutil.rmtree(app)
+        return {"deleted": name, "backup": backup["name"]}
 
     def save_tailor(self, name, tailor):
         path = self.apps_dir / name / "tailor.yaml"
