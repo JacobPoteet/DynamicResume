@@ -111,8 +111,12 @@
     ]
     v(gap-line)
     if multi {
+      // A role on the same game as the role above it skips the repeated game label.
       block(stroke: (left: 1.4pt + accent), inset: (left: 0.75em))[
-        #stack(spacing: gap-role, ..g.roles.map(r => role(r, not show-games)))
+        #stack(spacing: gap-role, ..g.roles.enumerate().map(((j, r)) => {
+          let same = j > 0 and g.roles.at(j - 1).game == r.game
+          role(r, not show-games and not same)
+        }))
       ]
     } else {
       role(g.roles.first(), not show-games)

@@ -108,7 +108,7 @@ async function showHome() {
       <strong>${esc(a.studio || a.name)}</strong>
       <span class="pills"><span class="pill plain">${esc(a.template)}</span>${pdfPill(a.pdfs)}</span>
       <span class="sub">${esc(a.role)} · edited ${ago(a.updated)}</span>
-    </a></li>`).join("");
+    </a><button class="ghost danger" data-delete="${esc(a.name)}" aria-label="Delete ${esc(a.studio || a.name)}, ${esc(a.role)}">Delete</button></li>`).join("");
   view(`<div class="page"><div class="home">
     <section class="card">
       <div class="hd"><h1>Applications</h1><span class="grow"></span><span class="muted">${apps.length}</span></div>
@@ -135,6 +135,19 @@ async function showHome() {
   </div></div>`);
   $("#na-create").onclick = () => createApp(false);
   if ($("#na-draft")) $("#na-draft").onclick = () => createApp(true);
+  document.querySelectorAll("[data-delete]").forEach((b) => (b.onclick = () => deleteApp(apps.find((a) => a.name === b.dataset.delete))));
+}
+
+async function deleteApp(a) {
+  const label = [a.studio, a.role].filter(Boolean).join(", ") || a.name;
+  if (!confirm(`Delete ${label}?\n\nThis removes applications/${a.name}, its PDFs included. A snapshot is taken first (snapshots keep everything but the PDFs).`)) return;
+  try {
+    const r = await api("DELETE", `/api/apps/${enc(a.name)}`);
+    toast(`Deleted ${esc(label)}. Saved first as ${esc(r.backup)}.`, false, 7000);
+    showHome();
+  } catch (e) {
+    toast(esc(e.message), true);
+  }
 }
 
 async function createApp(draft) {
