@@ -1,0 +1,49 @@
+# Fictional demo. A Claude draft writes this file; the Listing tab edits it.
+studio: Sample Studio
+role: Gameplay Designer
+requirements:
+  - text: Design enemy behaviors and boss encounters
+    must: true
+    tags: [game-ai]
+    bullets: [dd-enemies, dd-bosses, rr-bots]
+  - text: Build and balance player abilities
+    must: true
+    tags: [gameplay, balancing]
+    bullets: [dd-abilities, rr-boosts]
+  - text: Prototype in Blueprints, iterate from playtests
+    must: true
+    tags: [playtesting, unreal]
+    bullets: [dd-enemies, rr-playtests]
+  - text: Difficulty scaling for one to four players
+    must: true
+    tags: [multiplayer, balancing]
+    bullets: [dd-coop]
+  - text: Work closely with animation and VFX
+    must: true
+    tags: [animation, vfx]
+    bullets: []
+  - text: Shipped at least one title
+    must: true
+    tags: [shipped]
+    bullets: [rr-lead, sp-shipped]
+  - text: Use playtest data for tuning calls
+    must: true
+    tags: [analytics, playtesting]
+    bullets: [rr-live, rr-playtests]
+  - text: Live-service or seasonal content
+    must: false
+    tags: [live-service]
+    bullets: [rr-live]
+  - text: Console development
+    must: false
+    tags: [consoles]
+    bullets: [dd-console]
+  - text: Mentoring other designers
+    must: false
+    tags: [mentorship]
+    bullets: [rr-mentor]
+gaps:
+  - No bullet shows work with animation or VFX teams
+  - Unreal Engine 5 is listed in skills, but every Unreal bullet is from an Unreal Engine 4 project
+notes: Led with Dungeon Delvers enemies, bosses, and abilities since the role is combat on a co-op game, then Robo Racers for balancing from playtest and live data. Fox Den is kept short since it predates the combat work.
+drafted: 2026-10-23 09:30
