@@ -3,16 +3,22 @@ target:
   role: Gameplay Designer
 
 # One line under the name: a title you have held, then focus areas from the listing.
-headline: Senior Gameplay Designer | Multiplayer, Enemy Design, Design Tools
+headline: Senior Gameplay Designer | Enemies and Encounters, Abilities, Co-op Balancing
 
 positions:
   pixel-forge-sr:
-    bullets: [rr-tools, rr-bots, rr-lead]
+    bullets: [rr-boosts, rr-bots, rr-playtests, rr-live, rr-lead, rr-tools, rr-mentor]
   dd-designer:
-    bullets: [dd-enemies, dd-console]
+    bullets: [dd-bosses, dd-enemies, dd-abilities, dd-coop, dd-console]
+  fd-associate:
+    bullets: [pg-courses, pg-physics, pg-funnel]
 
-skills_first: [Unreal Engine 4/5, C#]
-projects: [sample-project]
+skills_first: [Unreal Engine 4/5, C#, Combat Design, Enemy Design, Balancing]
+projects:
+  jam-tools:
+    bullets: [js-plugin]
+  sample-project:
+    bullets: [sp-rewind, sp-shipped]
 
 # Reword a bullet for this listing without touching the master:
 overrides:

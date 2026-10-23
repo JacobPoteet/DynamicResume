@@ -17,6 +17,10 @@ games:
     name: Dungeon Delvers
     start: 2019-06
     end: 2021-12
+  - id: pocket-golf
+    name: Pocket Golf
+    start: 2017-06
+    end: 2019-05
 
 positions:
   - id: pixel-forge-sr
@@ -30,7 +34,7 @@ positions:
     end: present
     bullets:
       - id: rr-lead
-        text: Led design for the ranked multiplayer mode from prototype through launch
+        text: Led design for the ranked multiplayer mode from prototype through launch, including matchmaking rules, seasons, and rank rewards
         tags: [leadership, multiplayer, unity]
         priority: 1
       - id: rr-tools
@@ -45,6 +49,18 @@ positions:
         text: Mentored two junior designers through their first shipped features
         tags: [mentorship, leadership]
         priority: 3
+      - id: rr-live
+        text: Ran weekly live events with rotating track modifiers, and used retention and completion data to decide which modifiers and rewards came back
+        tags: [live-service, analytics, balancing]
+        priority: 1
+      - id: rr-playtests
+        text: Set up a weekly playtest loop with QA and turned each round of findings into a tuning pass
+        tags: [playtesting, process, collaboration]
+        priority: 2
+      - id: rr-boosts
+        text: Designed the boost and drafting system, balancing catch-up help for trailing racers against rewards for skilled racing lines, and tuned it across all 30 tracks
+        tags: [gameplay, systems, balancing]
+        priority: 1
 
   - id: dd-designer
     company: Lantern Games
@@ -69,10 +85,49 @@ positions:
         text: Prototyped the inventory screen and handed it to the UI team
         tags: [ui, unreal]
         priority: 3
+      - id: dd-bosses
+        text: Designed and scripted two boss encounters whose phases change with how well the party is doing, so a struggling group gets breathing room and a strong one gets pushed
+        tags: [game-ai, gameplay, unreal]
+        priority: 1
+      - id: dd-abilities
+        text: Built and balanced twelve player abilities in data tables with the systems designer, tuning cooldowns and damage so each class had a clear role in a party
+        tags: [gameplay, balancing, collaboration, unreal]
+        priority: 1
+      - id: dd-coop
+        text: Scaled enemy health, damage, and spawn counts for one to four players, and tested every party size at each milestone so solo play never felt like an afterthought
+        tags: [multiplayer, balancing, playtesting, unreal]
+        priority: 2
+
+  - id: fd-associate
+    company: Fox Den Interactive
+    product: Pocket Golf (mobile)
+    engine: Unity
+    game: pocket-golf
+    title: Associate Designer
+    location: Springfield, USA
+    start: 2017-06
+    end: 2019-05
+    bullets:
+      - id: pg-courses
+        text: Designed and scripted 40 courses across four seasonal updates
+        tags: [live-service, gameplay, unity]
+        priority: 1
+      - id: pg-physics
+        text: Tuned ball physics and wind so shots read clearly on a small screen
+        tags: [gameplay, mobile, unity]
+        priority: 2
+      - id: pg-funnel
+        text: Reworked the tutorial after funnel data showed a drop at the third hole, raising day-one retention
+        tags: [analytics, ui, unity]
+        priority: 2
 
 skills:
   - group: Software
     items: [Unreal Engine 4/5, Unity, C#, C++, Perforce]
+  - group: Design
+    items: [Combat Design, Enemy Design, Systems Design, Balancing, Prototyping, Playtesting, Live Events]
+  - group: Production
+    items: [Jira, Confluence, Git, Miro]
   - group: Platforms
     items: [PC, PS5, iOS/Android]
 
@@ -80,8 +135,8 @@ education:
   - school: Example State University
     credential: "B.S. Computer Science"
     location: Springfield, USA
-    start: 2015-08
-    end: 2019-05
+    start: 2013-08
+    end: 2017-05
 
 projects:
   - id: sample-project
@@ -93,3 +148,16 @@ projects:
         text: Released to itch.io and used for playtesting new puzzle ideas
         tags: [shipped]
         priority: 2
+      - id: sp-rewind
+        text: Built a time-rewind mechanic that records every object's state, so any puzzle can be undone step by step
+        tags: [gameplay, systems]
+        priority: 1
+  - id: jam-tools
+    name: Encounter Sketchpad
+    url: example.com/sketchpad
+    summary: A free Unreal Engine plugin for blocking out encounters.
+    bullets:
+      - id: js-plugin
+        text: Lets a designer drop spawn waves on a timeline and replay the fight in the editor before any scripting
+        tags: [tools, game-ai, unreal]
+        priority: 1
