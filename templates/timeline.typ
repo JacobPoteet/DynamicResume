@@ -73,8 +73,11 @@
   if engine != "" and not game.contains(engine) [#game (#engine)] else [#game]
 }
 
-#let role(r, inline-game) = {
-  let head = [#text(fill: accent, weight: "bold")[#r.title]#if filled(r.team) [#text(fill: muted)[, #r.team]]#if inline-game and r.game != "" [ #text(fill: muted)[|] #emph[#game-label(r.game, r.engine)]]]
+// `company` repeats the employer on a later role under one company heading, so a parser
+// that reads each role as its own job does not take the team name for the company. That line
+// is the longest on the page, so its engine shortens to "UE4".
+#let role(r, inline-game, company: none) = {
+  let head = [#text(fill: accent, weight: "bold")[#r.title]#if filled(r.team) [#text(fill: muted)[, #r.team]]#if company != none [ #text(fill: muted)[| #company]]#if inline-game and r.game != "" [ #text(fill: muted)[|] #emph[#game-label(r.game, if company != none { r.engine.replace("Unreal Engine ", "UE") } else { r.engine })]]]
   block(breakable: false)[
     #row(head, r.dates_short)
     #v(gap-head)
@@ -115,7 +118,7 @@
       block(stroke: (left: 1.4pt + accent), inset: (left: 0.75em))[
         #stack(spacing: gap-role, ..g.roles.enumerate().map(((j, r)) => {
           let same = j > 0 and g.roles.at(j - 1).game == r.game
-          role(r, not show-games and not same)
+          role(r, not show-games and not same, company: if j > 0 { g.company })
         }))
       ]
     } else {
@@ -123,8 +126,14 @@
     }
   }
 
+  if d.skills.len() > 0 {
+    section("Skills")
+    stack(spacing: 3.5pt, ..d.skills.map(s => [#text(fill: accent, weight: "bold")[#s.group:] #s.items.join(", ")]))
+  }
+
+
   if d.projects.len() > 0 {
-    section("Personal Projects")
+    section("Projects")
     for (i, pr) in d.projects.enumerate() {
       if i > 0 { v(gap-group) }
       block(breakable: false)[
@@ -137,11 +146,6 @@
         #bullets(pr.bullets)
       ]
     }
-  }
-
-  if d.skills.len() > 0 {
-    section("Skills")
-    stack(spacing: 3.5pt, ..d.skills.map(s => [#text(fill: accent, weight: "bold")[#s.group:] #s.items.join(", ")]))
   }
 
   if d.education.len() > 0 {
