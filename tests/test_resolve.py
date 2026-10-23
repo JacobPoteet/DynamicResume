@@ -23,6 +23,13 @@ def test_bullet_order_follows_the_tailor(master, tailor):
     assert [b["id"] for b in data["positions"][0]["bullets"]] == tailor["positions"]["pixel-forge-sr"]["bullets"]
 
 
+def test_projects_follow_the_tailor_order(master, tailor):
+    t = copy.deepcopy(tailor)
+    t["projects"] = dict(reversed(list(t["projects"].items())))
+    names = {p["id"]: p["name"] for p in master["projects"]}
+    assert [p["name"] for p in build.resolve(master, t, False)["projects"]] == [names[i] for i in t["projects"]]
+
+
 def test_short_text_is_used_when_listed(master, tailor):
     out = texts(build.resolve(master, tailor, False))
     assert out["rr-lead"] == by_id(master)["rr-lead"]["short"]

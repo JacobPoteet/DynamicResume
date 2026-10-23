@@ -14,11 +14,11 @@ positions:
     bullets: [pg-courses, pg-physics, pg-funnel]
 
 skills_first: [Unreal Engine 4/5, C#, Combat Design, Enemy Design, Balancing]
-projects:
-  jam-tools:
-    bullets: [js-plugin]
+projects:                  # printed in this order
   sample-project:
     bullets: [sp-rewind, sp-shipped]
+  jam-tools:
+    bullets: [js-plugin]
 
 # Reword a bullet for this listing without touching the master:
 overrides:
