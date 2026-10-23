@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -18,8 +21,8 @@ jobs:
     name: Syntax and lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install ruff==0.6.9
@@ -27,18 +30,18 @@ jobs:
         run: ruff check .
       - name: Python syntax
         run: python -m compileall -q build.py studio scripts tests
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
       - name: JavaScript syntax
-        run: node --check studio/static/app.js
+        # The runner ships with Node; this only parses the file.
+        run: |
+          node --version
+          node --check studio/static/app.js
 
   privacy:
     name: Privacy guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install pypdf==6.21.1
@@ -53,8 +56,8 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -71,8 +74,8 @@ jobs:
       TYPST_VERSION: "0.15.1"
       REQUIRE_TYPST: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip

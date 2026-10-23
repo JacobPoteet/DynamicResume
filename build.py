@@ -493,7 +493,7 @@ def build_master(typst, example):
     out_dir = ROOT / "build" / "master"
     out = out_dir / f"{slug(master['basics']['name'])}_Master.pdf"
     f = fill(render(typst, f"{DEFAULT_TEMPLATE}.typ", data, out, out_dir, "resume"))
-    print(f"OK: {rel(out)} ({f['pages']} pages)")
+    print(f"OK: {rel(out)} ({f['pages']} page{'s' if f['pages'] != 1 else ''})")
 
 
 def find_app(app_arg, example):
