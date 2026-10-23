@@ -149,6 +149,10 @@ Optional, in `data/` (gitignored), edited on the Listing tab. Your notes about a
   notes: games of theirs you have played, people you know there, why you want to work with them
 ```
 
+## Checks
+
+CI (`.github/workflows/ci.yml`) runs ruff and `node --check`, the privacy check (`scripts/check_privacy.py`), `pytest -m "not typst"`, and on Windows the demo build, `check --example` and `pytest -m typst` (ATS text extraction). Before opening a PR, run `ruff check .`, `python scripts/check_privacy.py` (after staging, since it reads tracked files) and `python -m pytest`, with `pip install -r requirements-dev.txt` first. Add or update a test with every behavior change. After changing a template or the demo data, rebuild the demo with `python build.py --example build-all` and commit the PDFs; a test fails when they are stale. Tests use only the demo: the `home` fixture copies `examples/` into a temporary data home.
+
 ## Files
 
 - `build.py`: merge, lint, compile, page fill, the impact check, and the data home (`find_home`). Each template ends with a `<layout>` metadata label (page count, where the content ends, the usable area), and `timeline.typ` adds a `<bullet-fit>` label per bullet (lines, last-line fill) and a `<wrap>` label for a role line or headline that wraps; `build.py` queries all metadata. Each real build records its fill in `build/fit/<app>.json` under the data home, which `check` compares against. Errors raise `BuildError`; `collect_warnings()` gathers warnings for the app.

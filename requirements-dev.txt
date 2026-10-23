@@ -1,0 +1,4 @@
+# CI and local checks: pip install -r requirements.txt -r requirements-dev.txt
+pytest==8.3.3
+pypdf==6.21.1
+ruff==0.6.9

@@ -1,0 +1,7 @@
+# CI lint: pyflakes plus pycodestyle errors (ruff's defaults).
+target-version = "py311"
+line-length = 140
+
+[lint]
+# Short assigned lambdas (`run = lambda cmd: ...`) are this codebase's style.
+ignore = ["E731"]
