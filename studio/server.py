@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 import build
-from build import ROOT, BuildError
+from build import HOME, ROOT, BuildError
 from studio.draft import Drafts, claude_path
 from studio.workspace import Workspace
 
@@ -34,6 +34,17 @@ class Studio:
         self.build_dir = ROOT / "build" / ("studio-example" if example else "studio")
         self.drafts = Drafts(self.ws, LOCK, self.build_dir)
 
+    def url(self, p):
+        """The /files/ URL for a preview page or PDF: build output, or a file in an application
+        folder (which may sit outside this checkout, see build.find_home)."""
+        p = Path(p).resolve()
+        for prefix, base in (("build", ROOT / "build"), ("apps", self.ws.apps_dir)):
+            try:
+                return f"/files/{prefix}/{p.relative_to(base.resolve()).as_posix()}?v={int(time.time() * 1000)}"
+            except ValueError:
+                pass
+        raise BuildError(f"cannot serve {p}")
+
     def versions(self, name=None):
         """Newest modification time of what a preview depends on, so the page can notice
         edits made outside the app (a text editor, Claude Code) and refresh."""
@@ -42,7 +53,8 @@ class Studio:
         v = {"master": newest([self.ws.master_path]), "templates": newest(build.TEMPLATES.glob("*.typ"))}
         if name:
             app = self.ws.apps_dir / name
-            v["app"] = newest(app / f for f in ("tailor.yaml", "listing.md", "listing.yaml", "cover-letter.md"))
+            v["app"] = newest([*(app / f for f in ("tailor.yaml", "listing.md", "listing.yaml", "cover-letter.md")),
+                               self.ws.studios_path])
         return v
 
     def preview(self, name, kind, tailor=None, letter=None):
@@ -66,9 +78,10 @@ class Studio:
                     data = build.letter_data(master, tailor, letter)
                     template = "cover-letter.typ"
                 fill = build.fill(build.render(self.typst, template, data, out_dir / "page-{p}.svg", out_dir, kind))
-                stamp = int(time.time() * 1000)
+                for w in build.fit_warnings(fill):
+                    build.warn(w)
                 pages = sorted(out_dir.glob("page-*.svg"), key=lambda p: int(re.sub(r"\D", "", p.stem)))
-                urls = [f"/files/{p.relative_to(ROOT).as_posix()}?v={stamp}" for p in pages]
+                urls = [self.url(p) for p in pages]
                 return {"ok": True, "pages": urls, "fill": fill, "warnings": list(warnings)}
             except BuildError as e:
                 return {"ok": False, "error": str(e), "warnings": list(warnings)}
@@ -77,9 +90,8 @@ class Studio:
         app = self.ws.app_dir(name).resolve()
         with LOCK, build.collect_warnings() as warnings:
             r = build.build_app(self.typst, app, self.example)
-        files = lambda p: f"/files/{p.relative_to(ROOT).as_posix()}?v={int(time.time() * 1000)}" if p else None
-        return {"resume": files(r["resume"]), "resume_fill": r["resume_fill"],
-                "letter": files(r["letter"]), "letter_fill": r["letter_fill"], "warnings": warnings,
+        return {"resume": self.url(r["resume"]), "resume_fill": r["resume_fill"],
+                "letter": r["letter"] and self.url(r["letter"]), "letter_fill": r["letter_fill"], "warnings": warnings,
                 "pdfs": self.ws.pdf_status(app, self.ws._read_yaml(app / "tailor.yaml") or {})}
 
 
@@ -98,7 +110,7 @@ def route(method, pattern):
 @route("GET", "/api/init")
 def init(s, body, q):
     return {"example": s.example, "templates": build.templates(), "default_template": build.DEFAULT_TEMPLATE,
-            "apps_rel": s.ws.apps_dir.relative_to(ROOT).as_posix(), "claude": bool(claude_path())}
+            "claude": bool(claude_path()), "data_home": None if s.example or HOME == ROOT else str(HOME)}
 
 
 @route("GET", "/api/versions")
@@ -171,6 +183,14 @@ def unsubmit(s, body, q, name):
         return s.ws.unsubmit_app(name)
 
 
+@route("PUT", "/api/apps/([^/]+)/studio-notes")
+def put_studio_notes(s, body, q, name):
+    tailor = s.ws._read_yaml(s.ws.app_dir(name) / "tailor.yaml") or {}
+    with LOCK:
+        s.ws.save_studio_notes((tailor.get("target") or {}).get("studio"), body.get("notes"))
+    return {"versions": s.versions(name)}
+
+
 @route("PUT", "/api/apps/([^/]+)/listing")
 def put_listing(s, body, q, name):
     s.ws.require_editable(name)
@@ -216,6 +236,18 @@ def put_master(s, body, q):
                 build.lint(text, "master")
     return {"master": master, "text": s.ws.master_text(), "usage": s.ws.bullet_usage(),
             "versions": s.versions(), "warnings": warnings}
+
+
+@route("POST", "/api/check")
+def check(s, body, q):
+    """What the master's current state does to every unsubmitted application's resume."""
+    with LOCK:
+        return {"rows": build.check_apps(s.typst, s.example)}
+
+
+@route("GET", "/api/gaps")
+def gaps(s, body, q):
+    return {"gaps": s.ws.gap_summary()}
 
 
 @route("GET", "/api/snapshots")
@@ -311,10 +343,14 @@ class Handler(BaseHTTPRequestHandler):
         return p
 
     def output_file(self, rel):
-        """Previews and PDFs only: SVG/PDF files under build/ or the applications folder."""
-        p = self.safe(ROOT, rel)
-        allowed = (ROOT / "build").resolve(), self.studio.ws.apps_dir.resolve()
-        if p.suffix.lower() not in (".svg", ".pdf") or not any(a in p.parents for a in allowed):
+        """Previews and PDFs only: SVG/PDF files under build/ (files/build/...) or the
+        applications folder (files/apps/...)."""
+        prefix, _, rest = rel.partition("/")
+        base = {"build": ROOT / "build", "apps": self.studio.ws.apps_dir}.get(prefix)
+        if base is None:
+            raise BuildError("not a preview or PDF")
+        p = self.safe(base, rest)
+        if p.suffix.lower() not in (".svg", ".pdf"):
             raise BuildError("not a preview or PDF")
         return p
 
@@ -324,6 +360,8 @@ def serve(example, port, open_browser=True):
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     url = f"http://127.0.0.1:{port}/"
     print(f"DynamicResume editor{' (example data)' if example else ''}: {url}   Ctrl+C to stop")
+    if not example and HOME != ROOT:
+        print(f"Data and applications: {HOME}")
     if open_browser:
         threading.Timer(0.6, webbrowser.open, [url]).start()
     try:

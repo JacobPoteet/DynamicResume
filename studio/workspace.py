@@ -56,7 +56,7 @@ def _scalar(v):
 
 def _key(v):
     if isinstance(v, dict):
-        for k in ("id", "group", "school"):
+        for k in ("id", "group", "school", "studio"):
             if v.get(k) is not None:
                 return (k, v[k])
     return None
@@ -172,7 +172,11 @@ class Workspace:
         self.example = example
         self.master_path, self.apps_dir = build.workspace(example)
         self.base = self.master_path.parent.parent
-        self.snap_dir = ROOT / "snapshots" / ("example" if example else "")
+        # The folder that holds your data, Local/ and snapshots: the main checkout when this
+        # code runs in a git worktree (see build.find_home). The demo stays with the code.
+        self.home = ROOT if example else build.HOME
+        self.studios_path = self.master_path.parent / "studios.yaml"
+        self.snap_dir = self.home / "snapshots" / ("example" if example else "")
         self.history_dir = self.snap_dir / "master-history"
 
     # ----- master -----
@@ -314,6 +318,7 @@ class Workspace:
             "listing_spec": self._read_yaml(app / "listing.yaml"),
             "letter": self._read_text(app / "cover-letter.md"),
             "pdfs": self.pdf_status(app, tailor), "submitted": build.submission(app),
+            "studio_notes": self.studio_notes((tailor.get("target") or {}).get("studio")),
         }
 
     def require_editable(self, name):
@@ -348,7 +353,7 @@ class Workspace:
         stale = any(v["stale"] for v in pdfs.values())
         info = {"date": date, **files, "stale": stale}
         (dest / "submitted.yaml").write_text(yaml.safe_dump(info, sort_keys=False), encoding="utf-8", newline="\n")
-        return {**info, "path": dest.relative_to(ROOT).as_posix()}
+        return {**info, "path": build.rel(dest)}
 
     def unsubmit_app(self, name):
         """Make a submitted application editable again. The frozen copy is removed only when
@@ -367,7 +372,7 @@ class Workspace:
         while dest.exists():
             dest, n = app / f"{build.SUBMITTED}-{sub.get('date')}-{n}", n + 1
         src.rename(dest)
-        return {"kept": dest.relative_to(ROOT).as_posix()}
+        return {"kept": build.rel(dest)}
 
     def delete_app(self, name):
         """Remove an application folder, PDFs included. Takes a snapshot first, which keeps
@@ -392,12 +397,67 @@ class Workspace:
             raise BuildError(f"cannot write {filename}")
         (self.app_dir(name) / filename).write_text(text, encoding="utf-8", newline="\n")
 
+    # ----- gaps and studio notes -----
+
+    def gap_summary(self):
+        """Gaps from every application's listing.yaml, grouped by topic and ranked by how many
+        applications raised them. A gap with no topic is a group of its own."""
+        groups = {}
+        for app in self.app_dirs():
+            spec = self._read_yaml(app / "listing.yaml") or {}
+            studio = spec.get("studio") or app.name
+            for g in spec.get("gaps") or []:
+                text, topic = (str(g.get("text") or ""), g.get("topic")) if isinstance(g, dict) else (str(g), None)
+                key = str(topic or text).strip().lower()
+                if not key:
+                    continue
+                grp = groups.setdefault(key, {"topic": str(topic or ""), "apps": [], "items": []})
+                if app.name not in grp["apps"]:
+                    grp["apps"].append(app.name)
+                grp["items"].append({"app": app.name, "studio": studio, "text": text})
+        return sorted(groups.values(), key=lambda g: (-len(g["apps"]), g["topic"] or g["items"][0]["text"]))
+
+    def gap_topics(self):
+        return sorted({g["topic"] for g in self.gap_summary() if g["topic"]})
+
+    def studio_notes(self, studio):
+        """Your notes about a studio (games of theirs you have played, people you know there)
+        from data/studios.yaml, matched on the studio name."""
+        key = str(studio or "").strip().lower()
+        for entry in self._read_yaml(self.studios_path) or []:
+            if key and isinstance(entry, dict) and str(entry.get("studio", "")).strip().lower() == key:
+                return str(entry.get("notes") or "")
+        return ""
+
+    def save_studio_notes(self, studio, notes):
+        studio, notes = str(studio or "").strip(), str(notes or "").strip()
+        if not studio:
+            raise BuildError("give the application a studio name first")
+        doc = rt_load(self.studios_path.read_text(encoding="utf-8")) if self.studios_path.exists() else None
+        entries = [e for e in (plain(doc) if doc is not None else []) if isinstance(e, dict)]
+        match = [e for e in entries if str(e.get("studio", "")).strip().lower() == studio.lower()]
+        if match and notes:
+            match[0]["notes"] = notes
+        elif match:
+            entries.remove(match[0])
+        elif notes:
+            entries.append({"studio": studio, "notes": notes})
+        self.studios_path.write_text(rt_dump(merge(doc, entries)), encoding="utf-8", newline="\n")
+
     # ----- snapshots -----
+
+    def _member(self, p):
+        """A file's name inside a snapshot. Templates belong to the code, so they are stored as
+        templates/... and restored there; everything else is relative to the data home."""
+        try:
+            return "templates/" + p.relative_to(build.TEMPLATES).as_posix()
+        except ValueError:
+            return p.relative_to(self.home).as_posix()
 
     def _snapshot_files(self):
         roots = [self.master_path.parent, self.apps_dir, build.TEMPLATES]
         if not self.example:
-            roots.append(ROOT / "Local")
+            roots.append(self.home / "Local")
         for r in roots:
             if r.is_dir():
                 for p in sorted(r.rglob("*")):
@@ -405,8 +465,8 @@ class Workspace:
                     sent = p.parent.name.startswith(build.SUBMITTED)
                     if p.is_file() and (p.suffix.lower() != ".pdf" or sent):
                         yield p
-        if not self.example and (ROOT / "CLAUDE.local.md").exists():
-            yield ROOT / "CLAUDE.local.md"
+        if not self.example and (self.home / "CLAUDE.local.md").exists():
+            yield self.home / "CLAUDE.local.md"
 
     def create_snapshot(self, label=""):
         self.snap_dir.mkdir(parents=True, exist_ok=True)
@@ -416,9 +476,9 @@ class Workspace:
         n = 0
         with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
             for f in self._snapshot_files():
-                z.write(f, f.relative_to(ROOT).as_posix())
+                z.write(f, self._member(f))
                 n += 1
-        return {"name": name, "path": path.relative_to(ROOT).as_posix(), "files": n, "size": path.stat().st_size}
+        return {"name": name, "path": build.rel(path), "files": n, "size": path.stat().st_size}
 
     def list_snapshots(self):
         if not self.snap_dir.is_dir():
@@ -439,8 +499,9 @@ class Workspace:
         n = 0
         with zipfile.ZipFile(self.snap_dir / name) as z:
             for member in z.namelist():
-                dest = (ROOT / member).resolve()
-                if ROOT not in dest.parents:
+                base = ROOT if member.startswith("templates/") else self.home
+                dest = (base / member).resolve()
+                if base.resolve() not in dest.parents:
                     raise BuildError(f"snapshot entry outside the repo: {member}")
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(z.read(member))

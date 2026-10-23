@@ -24,6 +24,14 @@
 // Shows the address as written and links it, adding https:// when it has no scheme.
 #let web-link(url) = link(if url.starts-with("http") { url } else { "https://" + url }, url)
 
+// Read by build.py: flags a line meant to fit on one line (a role line, the headline) that
+// wraps. `rhs` is the right-aligned text beside it, if any. Invisible; takes no space.
+#let wrap-probe(body, rhs, what, label) = layout(size => {
+  // `row` keeps a 1em gutter before the right-hand text.
+  let room = size.width - if rhs == "" { 0pt } else { measure(text(fill: muted)[#rhs]).width + 1em.to-absolute() }
+  if measure(body).width > room [#metadata((what: what, text: label)) <wrap>]
+})
+
 // Email and LinkedIn are real links, so a recruiter reading the PDF can click them.
 #let contact-line(b) = {
   let parts = (
@@ -40,6 +48,7 @@
   if filled(headline) {
     v(5pt)
     text(size: 11.5pt)[#headline]
+    wrap-probe(text(size: 11.5pt)[#headline], "", "Headline", headline)
   }
   v(6pt)
   text(size: 9.5pt, fill: muted)[#contact-line(b)]
@@ -66,7 +75,35 @@
   text(size: 7.5pt, fill: muted)[ #b.id | p#b.priority | #b.tags.join(", ")]
 }
 
-#let bullets(items) = list(spacing: gap-bullet, ..items.map(b => [#b.text#meta(b)]))
+// Fit probes, read by build.py: how many lines each bullet takes and how full its last line
+// is, so the build can point at the bullet to trim, and any line that should fit on one line
+// but wraps. They are invisible metadata and take no space.
+#let line-counter(width) = {
+  let one = measure(block(width: width, [X])).height
+  let step = measure(block(width: width, [X #linebreak() X])).height - one
+  body => calc.round((measure(block(width: width, body)).height - one) / step) + 1
+}
+
+#let bullet-fit(b, width, lines) = {
+  let n = lines(b.text)
+  let words = b.text.split(" ")
+  // The last line holds the fewest trailing words whose removal drops a line.
+  let k = 1
+  while n > 1 and k < words.len() and lines(words.slice(0, words.len() - k).join(" ")) == n { k += 1 }
+  let tail = if n == 1 { b.text } else { words.slice(words.len() - k).join(" ") }
+  [#metadata((id: b.id, lines: n, last: measure(tail).width / width)) <bullet-fit>]
+}
+
+
+#let bullets(items) = layout(size => {
+  list(spacing: gap-bullet, ..items.map(b => [#b.text#meta(b)]))
+  if items.len() > 0 and not items.first().at("meta", default: false) {
+    // The width a list item's text wraps at: the column minus indent, marker and gap.
+    let width = size.width - (0.15em + 0.55em).to-absolute() - measure(text(fill: accent)[•]).width
+    let lines = line-counter(width)
+    for b in items { bullet-fit(b, width, lines) }
+  }
+})
 
 // "Judas (Unreal Engine)", dropping the parenthetical when the name already says the engine.
 #let game-label(game, engine) = {
@@ -80,6 +117,7 @@
   let head = [#text(fill: accent, weight: "bold")[#r.title]#if filled(r.team) [#text(fill: muted)[, #r.team]]#if company != none [ #text(fill: muted)[| #company]]#if inline-game and r.game != "" [ #text(fill: muted)[|] #emph[#game-label(r.game, if company != none { r.engine.replace("Unreal Engine ", "UE") } else { r.engine })]]]
   block(breakable: false)[
     #row(head, r.dates_short)
+    #wrap-probe(head, r.dates_short, "Role line", r.title + if r.game != "" { " | " + r.game } else { "" })
     #v(gap-head)
     #bullets(r.bullets)
   ]

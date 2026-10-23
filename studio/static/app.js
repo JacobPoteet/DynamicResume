@@ -86,7 +86,7 @@ function route() {
   saveLetter();
   saveListing();
   const go = a === "app" && b ? showEditor(b, c || "resume")
-    : a === "master" ? showMaster(b === "raw" ? "raw" : "bullets")
+    : a === "master" ? showMaster(b === "raw" ? "raw" : b === "gaps" ? "gaps" : "bullets")
     : a === "snapshots" ? showSnapshots()
     : showHome();
   go.catch((e) => view(`<div class="page"><div class="card"><div class="bd">${esc(e.message)}</div></div></div>`));
@@ -261,11 +261,11 @@ function renderTitle() {
 }
 
 function pdfUrl(file) {
-  return `/files/${S.init.apps_rel}/${enc(S.app.name)}/${enc(file)}?v=${Date.now()}`;
+  return `/files/apps/${enc(S.app.name)}/${enc(file)}?v=${Date.now()}`;
 }
 
 function sentUrl(file) {
-  return `/files/${S.init.apps_rel}/${enc(S.app.name)}/submitted/${enc(file)}`;
+  return `/files/apps/${enc(S.app.name)}/submitted/${enc(file)}`;
 }
 
 // A submitted application is read-only: the left pane is inert and the right shows the PDF as sent.
@@ -462,7 +462,7 @@ async function renderPreview(kind) {
   if (f.pages != null) {
     const free = resume && f.lines_free != null ? `<span class="muted">about ${plural(f.lines_free, "line")} free</span>` : "";
     line = over
-      ? `<span class="pill bad">Over one page</span><span><strong>${f.pages} pages</strong>, page ${f.pages} is ${pct}% full. Cut to fit one page.</span>`
+      ? `<span class="pill bad">Over one page</span><span><strong>${f.pages} pages</strong>, about ${plural(f.spill_lines ?? 0, "line")} on page ${f.pages}. Cut that much to fit one page.</span>`
       : `<span class="pill ${full ? "good" : ""}">${full ? "Fits one page" : "Room left"}</span><span>${pct}% full</span>${free}`;
   }
   const warnings = [
@@ -482,6 +482,18 @@ async function renderPreview(kind) {
     </div>`;
   setBusy(false);
   fitSheets();
+  if (resume) updateFitBadges();
+}
+
+// Line counts the template measured for each selected bullet, shown on the Resume tab.
+function fitBadge(id) {
+  const f = S.previews.resume?.fill?.bullets?.[id];
+  if (!f) return "";
+  const tight = f.lines > 1 && f.last < 0.3;
+  return `${plural(f.lines, "line")}${tight ? ` <span class="tight" title="The last line is only ${Math.round(f.last * 100)}% full. Trimming a few words saves a whole line.">short last line</span>` : ""}`;
+}
+function updateFitBadges() {
+  document.querySelectorAll("#left [data-fit]").forEach((el) => (el.innerHTML = fitBadge(el.dataset.fit)));
 }
 
 // ---------- resume tab ----------
@@ -643,7 +655,8 @@ function ownerBlock(p, kind) {
 
 function bulletRow(b, kind, owner, isSel) {
   const ov = (S.app.tailor.overrides || {})[b.id];
-  const text = ov ?? b.text;
+  const useShort = !!b.short && (S.app.tailor.short || []).includes(b.id);
+  const text = ov ?? (useShort ? b.short : b.text);
   const attrs = `data-kind="${kind}" data-owner="${esc(owner)}" data-id="${esc(b.id)}"`;
   if (S.ui.editing === b.id) {
     return `<li class="b ${isSel ? "sel" : ""}" ${attrs}>
@@ -671,6 +684,9 @@ function bulletRow(b, kind, owner, isSel) {
       <div class="meta">
         <code>${esc(b.id)}</code><span>p${b.priority ?? 3}</span><span>${esc((b.tags || []).join(", "))}</span>
         ${ov != null ? `<span class="ov" title="Master text: ${esc(b.text)}">Edited for this application</span>` : ""}
+        ${b.variant_of ? `<span title="Another version of ${esc(b.variant_of)}; the resume can use one of the two">variant of ${esc(b.variant_of)}</span>` : ""}
+        ${b.short ? `<button class="ghost small short" data-act="short" aria-pressed="${useShort}" title="${useShort ? "Using the short text. Click for the full text." : `Use the short text: ${esc(b.short)}`}">Short</button>` : ""}
+        ${isSel ? `<span class="fit" data-fit="${esc(b.id)}">${fitBadge(b.id)}</span>` : ""}
         ${label ? `<span class="score">${esc(label)}</span>` : ""}
       </div>
     </div>
@@ -732,6 +748,18 @@ function setBulletSelected(kind, owner, id, on) {
   if (!on && i >= 0) list.splice(i, 1);
 }
 
+// Ticking one version of a bullet unticks the other (variant_of): the build refuses both.
+function untickVariant(kind, owner, id) {
+  const o = (S.master[kind] || []).find((p) => p.id === owner);
+  const b = findBullet(kind, owner, id);
+  const sel = selected(kind, owner) || [];
+  for (const x of (o?.bullets || []).filter((x) => x.id !== id && (x.id === b?.variant_of || x.variant_of === id))) {
+    if (!sel.includes(x.id)) continue;
+    setBulletSelected(kind, owner, x.id, false);
+    toast(`Unticked ${esc(x.id)}: it is another version of ${esc(id)}.`);
+  }
+}
+
 function setOwner(kind, owner, on) {
   const t = S.app.tailor;
   t[kind] = t[kind] || {};
@@ -773,6 +801,7 @@ document.addEventListener("change", (e) => {
   const li = el.closest(".b");
   if (act === "bullet") {
     setBulletSelected(li.dataset.kind, li.dataset.owner, li.dataset.id, el.checked);
+    if (el.checked) untickVariant(li.dataset.kind, li.dataset.owner, li.dataset.id);
   } else if (act === "owner") {
     setOwner(el.dataset.kind, el.dataset.owner, el.checked);
   } else if (act === "game") {
@@ -854,6 +883,12 @@ document.addEventListener("click", async (e) => {
       b.text = before;
       toast(esc(err.message), true);
     }
+  } else if (act === "short") {
+    const list = (t.short = t.short || []);
+    const i = list.indexOf(li.dataset.id);
+    i >= 0 ? list.splice(i, 1) : list.push(li.dataset.id);
+    if (!list.length) delete t.short;
+    changed({ act: "short", id: li.dataset.id });
   } else if (act === "expand") {
     S.ui.expanded[el.dataset.owner] = !S.ui.expanded[el.dataset.owner];
     rerenderLeft();
@@ -1032,10 +1067,15 @@ function renderListingLeft() {
       <div class="bd stack">
         ${sp.notes ? `<p style="margin:0">${esc(sp.notes)}</p>` : ""}
         ${(sp.gaps || []).length ? `<div><strong>The master cannot back these up yet</strong>
-          <ul class="gaps">${sp.gaps.map((g) => `<li>${esc(g)}</li>`).join("")}</ul>
+          <ul class="gaps">${sp.gaps.map((g) => `<li>${esc(g.text ?? g)}${g.topic ? ` <span class="pill plain" title="Topic: counts this gap across applications on Master, Gaps">${esc(g.topic)}</span>` : ""}</li>`).join("")}</ul>
           <p class="muted" style="font-size:12px;margin:6px 0 0">If you have done these things, add bullets on the <a href="#/master">Master</a> page, then tick them on the Resume tab.</p></div>` : ""}
       </div>
     </section>` : ""}
+    <section class="card">
+      <div class="hd"><h2>Your notes about ${esc((S.app.tailor.target || {}).studio || "this studio")}</h2><span class="grow"></span>
+        <span class="faint" style="font-size:12px">${S.init.example ? "examples/" : ""}data/studios.yaml, shared by every application to this studio</span></div>
+      <div class="bd"><textarea id="studio-notes" rows="3" placeholder="Games of theirs you have played, people you know there, why you want to work with them. Drafts use these in the cover letter.">${esc(S.app.studio_notes || "")}</textarea></div>
+    </section>
     <section class="card">
       <div class="hd"><h2>Requirements</h2><span class="grow"></span><span class="faint" style="font-size:12px">drive the chips and bullet ranking on the Resume tab</span></div>
       <div class="bd">
@@ -1079,6 +1119,10 @@ CLICK_ACTIONS["req-del"] = (el) => {
 };
 
 function onListingInput(el) {
+  if (el.id === "studio-notes") {
+    S.app.studio_notes = el.value;
+    return queueListingSave("notes");
+  }
   if (el.id === "listing-text") {
     S.app.listing = el.value;
     return queueListingSave("text");
@@ -1090,7 +1134,7 @@ function onListingInput(el) {
   queueListingSave("spec");
 }
 document.addEventListener("input", (e) => {
-  if (S.app && (e.target.id === "listing-text" || (e.target.dataset.req && e.target.dataset.req !== "must"))) onListingInput(e.target);
+  if (S.app && (e.target.id === "listing-text" || e.target.id === "studio-notes" || (e.target.dataset.req && e.target.dataset.req !== "must"))) onListingInput(e.target);
 });
 document.addEventListener("change", (e) => {
   if (S.app && e.target.dataset.req === "must") onListingInput(e.target);
@@ -1110,11 +1154,18 @@ async function saveListing() {
   const body = {};
   if (listingDirty.has("text")) body.text = S.app.listing;
   if (listingDirty.has("spec")) body.spec = S.app.listing_spec;
+  const notes = listingDirty.has("notes");
   listingDirty.clear();
   status("Saving…", "busy");
   try {
-    const r = await api("PUT", `/api/apps/${enc(S.app.name)}/listing`, body);
-    S.versions = { ...S.versions, ...r.versions };
+    if (notes) {
+      const r = await api("PUT", `/api/apps/${enc(S.app.name)}/studio-notes`, { notes: S.app.studio_notes });
+      S.versions = { ...S.versions, ...r.versions };
+    }
+    if (body.text != null || body.spec) {
+      const r = await api("PUT", `/api/apps/${enc(S.app.name)}/listing`, body);
+      S.versions = { ...S.versions, ...r.versions };
+    }
     status("Saved", "ok");
   } catch (e) {
     toast(esc(e.message), true);
@@ -1233,9 +1284,11 @@ async function showMaster(mode = "bullets") {
     <div class="page" style="padding-bottom:20px">
       <div class="row" style="margin-bottom:14px">
         <h1>Master</h1>
-        <nav class="tabs"><a href="#/master" class="${mode === "bullets" ? "on" : ""}">Bullets</a><a href="#/master/raw" class="${mode === "raw" ? "on" : ""}">Raw YAML</a></nav>
+        <nav class="tabs"><a href="#/master" class="${mode === "bullets" ? "on" : ""}">Bullets</a><a href="#/master/raw" class="${mode === "raw" ? "on" : ""}">Raw YAML</a><a href="#/master/gaps" class="${mode === "gaps" ? "on" : ""}">Gaps</a></nav>
         <span class="grow"></span><span class="muted" style="font-size:12px">${esc(S.init.example ? "examples/data/master.yaml" : "data/master.yaml")} · ${plural(count, "bullet")}</span>
+        <button class="small" data-mact="check" title="Rebuild every unsubmitted application into build/check/ and report what changed">Check applications</button>
       </div>
+      <section class="card" id="impact" hidden></section>
       <div id="mbody" class="stack"></div>
     </div>
     <div class="savebar" id="savebar" hidden>
@@ -1244,10 +1297,12 @@ async function showMaster(mode = "bullets") {
     </div>
   </div>`);
   renderMasterBody();
+  renderImpact();
 }
 
 function renderMasterBody() {
   const body = $("#mbody");
+  if (M.mode === "gaps") return renderGaps();
   if (M.mode === "raw") {
     body.innerHTML = `<p class="muted" style="margin:0;font-size:13px">The whole file, comments included. Saving checks that it parses and builds before writing.
       Bullet ids are referenced by applications: do not rename one that is in use.</p>
@@ -1271,6 +1326,55 @@ function baseBullets() {
   return out;
 }
 const bulletDirty = (b, base = baseBullets()) => base[b.id] !== JSON.stringify(b);
+
+// Gaps from every application's listing, grouped by topic, most common first.
+async function renderGaps() {
+  const body = $("#mbody");
+  body.innerHTML = `<p class="muted">Loading…</p>`;
+  const { gaps } = await api("GET", "/api/gaps");
+  if (M.mode !== "gaps" || $("#mbody") !== body) return;
+  body.innerHTML = `<p class="muted" style="margin:0;font-size:13px">What listings asked for that the master could not back up, from every application's listing.yaml,
+      most common first. If you have done one of these, add a bullet for it on the Bullets tab.</p>
+    ${gaps.length ? gaps.map((g) => `<section class="card"><div class="hd"><strong class="grow">${esc(g.topic || g.items[0].text)}</strong>
+        <span class="pill ${g.apps.length > 1 ? "warn" : "plain"}">${plural(g.apps.length, "application")}</span></div>
+      <ul class="bd gap-items">${g.items.map((i) => `<li><a href="#/app/${enc(i.app)}/listing">${esc(i.studio)}</a>: ${esc(i.text)}</li>`).join("")}</ul></section>`).join("")
+      : `<div class="empty">No gaps recorded yet. Drafting with Claude lists them on each application's Listing tab.</div>`}`;
+  updateSavebar();
+}
+
+const fitLabel = (f) => !f ? "no earlier build" : f.pages == null ? "unknown"
+  : f.pages > 1 ? `${f.pages} pages (about ${plural(f.spill_lines ?? 0, "line")} over)` : `1 page, ${Math.round(f.fill * 100)}%`;
+
+// After a master save (or on request), rebuild every unsubmitted application into build/check/
+// and list the ones whose resume changed, so a master edit never breaks one unnoticed.
+async function runImpact() {
+  M.impact = { busy: true };
+  renderImpact();
+  try {
+    M.impact = { rows: (await api("POST", "/api/check")).rows };
+  } catch (e) {
+    M.impact = { error: e.message };
+  }
+  renderImpact();
+}
+
+function renderImpact() {
+  const el = $("#impact");
+  if (!el) return;
+  const im = M.impact;
+  el.hidden = !im;
+  if (!im) return;
+  const head = `<div class="hd"><h2 class="grow">Effect on your applications</h2><button class="ghost small" data-mact="impact-close">Dismiss</button></div>`;
+  if (im.busy) return (el.innerHTML = head + `<div class="bd row"><span class="spinner"></span>Rebuilding every application against this master…</div>`);
+  if (im.error) return (el.innerHTML = head + `<div class="bd"><span class="pill bad">Check failed</span> ${esc(im.error)}</div>`);
+  const rows = im.rows.filter((r) => r.changed || r.over);
+  if (!rows.length) return (el.innerHTML = head + `<div class="bd muted">No resume changed: ${plural(im.rows.length, "application")} build the same as last time.</div>`);
+  el.innerHTML = head + `<ul class="bd impact">${rows.map((r) => `<li>
+      <a href="#/app/${enc(r.name)}/resume">${esc(r.name)}</a>: ${esc(fitLabel(r.before))} → ${r.error ? `<span class="pill bad">${esc(r.error)}</span>` : esc(fitLabel(r.after))}
+      ${r.over ? `<span class="pill bad">Over one page</span>` : ""}
+      ${r.warnings.map((w) => `<div class="muted" style="font-size:12px">${esc(w)}</div>`).join("")}</li>`).join("")}</ul>
+    ${rows.some((r) => !r.before) ? `<div class="bd faint" style="font-size:12px;padding-top:0">"No earlier build" means the application has not been built since fit tracking was added; Build PDFs once to set a baseline.</div>` : ""}`;
+}
 
 function renderJump() {
   const nav = $("#jump");
@@ -1306,8 +1410,9 @@ function ownerCard(kind, o, oi) {
       const used = M.usage[b.id] || [];
       return `<div class="mb ${bulletDirty(b, base) ? "dirty" : ""}" data-bi="${bi}">
         <textarea data-bf="text" rows="2">${esc(b.text)}</textarea>
+        <input class="short-in" data-bf="short" value="${esc(b.short || "")}" placeholder="Short text (optional): a tighter version, for when a page is one line over">
         <div class="row2">
-          <code title="Bullet id, used by applications">${esc(b.id)}</code>
+          <code title="Bullet id, used by applications${b.variant_of ? `. Another version of ${esc(b.variant_of)} (variant_of, set in Raw YAML)` : ""}">${esc(b.id)}${b.variant_of ? ` ↔ ${esc(b.variant_of)}` : ""}</code>
           <input data-bf="tags" list="tag-list" value="${esc((b.tags || []).join(", "))}" placeholder="tags, comma separated">
           <select data-bf="priority" title="1 = strongest">${[1, 2, 3].map((p) => `<option value="${p}" ${(b.priority ?? 3) === p ? "selected" : ""}>p${p}</option>`).join("")}</select>
           <span class="row">
@@ -1391,6 +1496,10 @@ document.addEventListener("input", (e) => {
       const b = owner.bullets[Number(row.dataset.bi)];
       if (el.dataset.bf === "text") b.text = el.value.replace(/\s*\n\s*/g, " ");
       if (el.dataset.bf === "tags") b.tags = splitList(el.value);
+      if (el.dataset.bf === "short") {
+        if (el.value.trim()) b.short = el.value.replace(/\s*\n\s*/g, " ");
+        else delete b.short;
+      }
       if (el.dataset.bf === "priority") b.priority = Number(el.value);
       row.classList.toggle("dirty", bulletDirty(b));
     }
@@ -1413,7 +1522,12 @@ document.addEventListener("click", async (e) => {
   const act = el.dataset.mact;
   const card = el.closest("[data-kind]");
   const owner = card && M.draft[card.dataset.kind][Number(card.dataset.oi)];
-  if (act === "jump") {
+  if (act === "check") {
+    await runImpact();
+  } else if (act === "impact-close") {
+    M.impact = null;
+    renderImpact();
+  } else if (act === "jump") {
     document.getElementById(el.dataset.target)?.scrollIntoView({ behavior: "smooth", block: "start" });
   } else if (act === "details") {
     M.open[el.dataset.key] = !M.open[el.dataset.key];
@@ -1478,6 +1592,7 @@ async function saveMaster() {
     renderMasterBody();
     const warns = r.warnings.length ? ` Check: ${r.warnings.map(esc).join("; ")}` : "";
     toast(`Master saved. The previous version is in master-history.${warns}`, !!warns, warns ? 9000 : 4000);
+    runImpact();
   } catch (err) {
     M.error = err.message;
   } finally {
@@ -1594,6 +1709,11 @@ async function pollVersions() {
 (async function start() {
   S.init = await api("GET", "/api/init");
   $("#example-badge").hidden = !S.init.example;
+  if (S.init.data_home) {
+    const b = $("#home-badge");
+    b.hidden = false;
+    b.title = `This checkout is a git worktree, so data and applications come from ${S.init.data_home}`;
+  }
   document.title = S.init.example ? "DynamicResume (example)" : "DynamicResume";
   $("#snap-btn").onclick = () => takeSnapshot();
   S.versions = await api("GET", "/api/versions");

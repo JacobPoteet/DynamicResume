@@ -24,5 +24,8 @@ projects:
 overrides:
   rr-bots: Designed the opponent AI difficulty tiers and tuned them from playtest data
 
+# Use the master's shorter wording for these bullets:
+short: [rr-lead]
+
 cover_letter:
   greeting: Dear Sample Studio team,
