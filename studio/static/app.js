@@ -94,6 +94,12 @@ function route() {
 
 // ---------- home ----------
 
+// "2026-10-22" -> "Oct 22, 2026", read as a local date (no time zone shift).
+function fmtDay(iso) {
+  const [y, m, d] = String(iso).split("-").map(Number);
+  return y && m && d ? new Date(y, m - 1, d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : String(iso);
+}
+
 function pdfPill(pdfs) {
   if (!pdfs || !pdfs.resume.exists) return `<span class="pill plain">No PDFs</span>`;
   if (pdfs.resume.stale || (pdfs.letter.exists && pdfs.letter.stale)) return `<span class="pill warn">PDFs out of date</span>`;
@@ -106,7 +112,8 @@ async function showHome() {
   const rows = apps.map((a) => `
     <li><a href="#/app/${enc(a.name)}">
       <strong>${esc(a.studio || a.name)}</strong>
-      <span class="pills"><span class="pill plain">${esc(a.template)}</span>${pdfPill(a.pdfs)}</span>
+      <span class="pills"><span class="pill plain">${esc(a.template)}</span>${a.submitted
+        ? `<span class="pill good" title="PDFs frozen as sent">Submitted ${esc(fmtDay(a.submitted.date))}</span>` : pdfPill(a.pdfs)}</span>
       <span class="sub">${esc(a.role)} · edited ${ago(a.updated)}</span>
     </a><button class="ghost danger" data-delete="${esc(a.name)}" aria-label="Delete ${esc(a.studio || a.name)}, ${esc(a.role)}">Delete</button></li>`).join("");
   view(`<div class="page"><div class="home">
@@ -140,7 +147,8 @@ async function showHome() {
 
 async function deleteApp(a) {
   const label = [a.studio, a.role].filter(Boolean).join(", ") || a.name;
-  if (!confirm(`Delete ${label}?\n\nThis removes applications/${a.name}, its PDFs included. A snapshot is taken first (snapshots keep everything but the PDFs).`)) return;
+  const kept = a.submitted ? "everything, the PDFs you sent included" : "everything but the PDFs";
+  if (!confirm(`Delete ${label}?\n\nThis removes applications/${a.name}, its PDFs included. A snapshot is taken first (it keeps ${kept}).`)) return;
   try {
     const r = await api("DELETE", `/api/apps/${enc(a.name)}`);
     toast(`Deleted ${esc(label)}. Saved first as ${esc(r.backup)}.`, false, 7000);
@@ -205,26 +213,34 @@ async function showEditor(name, tab) {
   const t = S.app.tailor;
   const tabs = [["resume", "Resume"], ["letter", "Cover letter"], ["listing", "Listing"]].filter(([k]) => TABS[k]);
   const tpl = t.template || S.init.default_template;
+  const sub = S.app.submitted;
+  const tools = sub ? `
+      <span class="pill good" title="Builds skip this application">Submitted ${esc(fmtDay(sub.date))}</span>
+      <span class="row">${["resume", "letter"].filter((k) => sub[k]).map((k) => `<a class="pill" href="${sentUrl(sub[k])}" target="_blank" title="The PDF as sent">${k === "resume" ? "Resume" : "Letter"} as sent</a>`).join("")}</span>
+      <button id="unsubmit" title="Make this application editable again">Unsubmit</button>` : `
+      <label class="row muted" style="font-size:13px"><span class="tpl-word">Template</span>
+        <select id="tpl" aria-label="Resume template">${S.init.templates.map((x) => `<option ${x === tpl ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
+      </label>
+      <span id="pdf-state"></span>
+      <button id="submit" title="Freeze the PDFs as you sent them">Mark submitted</button>
+      <button class="primary" id="finalize">Build PDFs</button>`;
   view(`<div class="editor">
     <div class="ebar">
       <a href="#/" class="btn ghost">← Applications</a>
       <h1 id="e-title" title=""></h1>
       <nav class="tabs">${tabs.map(([k, l]) => `<a href="#/app/${enc(name)}/${k}" class="${k === tab ? "on" : ""}" ${k === tab ? `aria-current="page"` : ""}>${l}</a>`).join("")}</nav>
-      <span class="grow"></span>
-      <label class="row muted" style="font-size:13px"><span class="tpl-word">Template</span>
-        <select id="tpl" aria-label="Resume template">${S.init.templates.map((x) => `<option ${x === tpl ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
-      </label>
-      <span id="pdf-state"></span>
-      <button class="primary" id="finalize">Build PDFs</button>
+      <span class="grow"></span>${tools}
     </div>
     <div class="panes"><div class="pane left" id="left"></div><div class="pane right" id="right"></div></div>
   </div>`);
   renderTitle();
+  TABS[tab].left();
+  const kind = TABS[tab].preview;
+  if (sub) return showSent(kind);
   renderPdfState();
   $("#tpl").onchange = (e) => { t.template = e.target.value; queueSave(0); };
   $("#finalize").onclick = finalize;
-  TABS[tab].left();
-  const kind = TABS[tab].preview;
+  $("#submit").onclick = markSubmitted;
   if (S.previews[kind]) renderPreview(kind);
   else {
     $("#right").innerHTML = `<div class="pv-head">
@@ -246,6 +262,57 @@ function renderTitle() {
 
 function pdfUrl(file) {
   return `/files/${S.init.apps_rel}/${enc(S.app.name)}/${enc(file)}?v=${Date.now()}`;
+}
+
+function sentUrl(file) {
+  return `/files/${S.init.apps_rel}/${enc(S.app.name)}/submitted/${enc(file)}`;
+}
+
+// A submitted application is read-only: the left pane is inert and the right shows the PDF as sent.
+function showSent(kind) {
+  const sub = S.app.submitted;
+  const left = $("#left");
+  left.inert = true;
+  left.insertAdjacentHTML("afterbegin", `<div class="sent-note">Submitted ${esc(fmtDay(sub.date))}. This application is frozen so
+    the PDFs stay exactly as sent. Unsubmit it to edit or rebuild.</div>`);
+  const file = sub[kind] || sub.resume;
+  $("#right").innerHTML = `<div class="pv-head"><div class="fillline">
+      <span class="pill good">As sent</span><span class="muted">${esc(file)}</span>${sub.stale ? `<span class="pill warn" title="The PDFs were older than the latest edits when they were frozen">Built before the last edits</span>` : ""}
+      <span class="grow"></span><a href="${sentUrl(file)}" target="_blank">Open in a new tab</a></div></div>
+    <iframe class="sent-pdf" src="${sentUrl(file)}" title="${kind === "letter" ? "Cover letter" : "Resume"} as sent"></iframe>`;
+  $("#unsubmit").onclick = unsubmit;
+}
+
+async function markSubmitted() {
+  await Promise.all([saveNow(), saveLetter(), saveListing()]);
+  const p = S.app.pdfs;
+  if (!p.resume.exists) return toast("Build the PDFs you are sending first, then mark the application submitted.", true);
+  if ((p.resume.stale || (p.letter.exists && p.letter.stale)) &&
+      !confirm("The PDFs are older than your latest edits. They are frozen as they are now, which is usually what you sent. Continue?")) return;
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const date = prompt("The day you sent it (YYYY-MM-DD). The PDFs, tailor, letter, listing and master are copied to submitted/.", today);
+  if (date == null) return;
+  try {
+    const r = await api("POST", `/api/apps/${enc(S.app.name)}/submit`, { date });
+    toast(`Marked submitted on ${esc(fmtDay(r.date))}. Frozen copies are in ${esc(r.path)}.`, false, 7000);
+    await loadApp(S.app.name);
+    showEditor(S.app.name, S.tab);
+  } catch (e) {
+    toast(esc(e.message), true, 8000);
+  }
+}
+
+async function unsubmit() {
+  if (!confirm("Unsubmit this application? You can edit and rebuild it again. If the PDFs here still match the ones you sent, the frozen copy is removed; otherwise it is kept in a dated folder.")) return;
+  try {
+    const r = await api("POST", `/api/apps/${enc(S.app.name)}/unsubmit`);
+    toast(r.kept ? `Editable again. The PDFs you sent are kept in ${esc(r.kept)}.` : "Editable again.", false, 7000);
+    await loadApp(S.app.name);
+    showEditor(S.app.name, S.tab);
+  } catch (e) {
+    toast(esc(e.message), true, 8000);
+  }
 }
 
 function renderPdfState() {

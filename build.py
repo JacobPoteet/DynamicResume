@@ -6,6 +6,8 @@
   python build.py build master         full pool, multi-page, with tags
   python build.py build-all            every folder in applications/
   python build.py snapshot [label]     zip master, applications and templates into snapshots/
+  python build.py submit <app> [--date YYYY-MM-DD]   freeze the PDFs you sent; builds then skip it
+  python build.py unsubmit <app>       undo submit so the application can be edited and rebuilt
   add --example to use examples/ (the public demo data) instead of your own
 """
 import argparse
@@ -27,6 +29,7 @@ DEFAULT_TEMPLATE = "resume-inline"
 TAILOR_KEYS = {"target", "template", "headline", "games", "positions", "skills_first", "skill_groups",
                "projects", "overrides", "cover_letter"}
 BANNED = ["leverage", "passionate about", "drive innovation", "spearhead", "synergy", "cutting-edge", "excited to"]
+SUBMITTED = "submitted"  # folder in an application that holds the PDFs as they were sent
 EM_DASH = "—"
 EN_DASH = "–"
 
@@ -410,6 +413,12 @@ def find_app(app_arg, example):
     return app.resolve()
 
 
+def submission(app):
+    """The application's submitted/submitted.yaml (date, files), or None if it was not submitted."""
+    p = app / SUBMITTED / "submitted.yaml"
+    return load_yaml(p) if p.exists() else None
+
+
 def output_names(master, tailor, app):
     studio = slug((tailor.get("target") or {}).get("studio") or app.name)
     name = slug(master["basics"]["name"])
@@ -419,6 +428,10 @@ def output_names(master, tailor, app):
 def build_app(typst, app, example, template=None):
     """Build one application's PDFs. A --template trial build goes to build/<app>/ so the
     application folder only ever holds the real pair. Returns what was written."""
+    sub = submission(app)
+    if sub and not template:
+        raise BuildError(f"{app.name} was submitted on {sub.get('date')}, so its PDFs are frozen. "
+                         f"Run 'python build.py unsubmit {app.name}' to edit and rebuild it.")
     master_path, _ = workspace(example)
     master = load_yaml(master_path)
     tailor = load_yaml(app / "tailor.yaml")
@@ -473,6 +486,11 @@ def main():
     s.add_argument("--no-browser", action="store_true", help="do not open a browser tab")
     n = sub.add_parser("snapshot", parents=[common], help="zip your data, applications and templates")
     n.add_argument("label", nargs="?", default="")
+    u = sub.add_parser("submit", parents=[common], help="freeze an application's PDFs as sent")
+    u.add_argument("target")
+    u.add_argument("--date", help="the day you sent it, YYYY-MM-DD (default today)")
+    x = sub.add_parser("unsubmit", parents=[common], help="make a submitted application editable again")
+    x.add_argument("target")
     args = ap.parse_args()
     example = getattr(args, "example", False)
 
@@ -486,6 +504,18 @@ def main():
             snap = Workspace(example).create_snapshot(args.label)
             print(f"OK: {snap['path']} ({snap['files']} files)")
             return
+        if args.cmd in ("submit", "unsubmit"):
+            from studio.workspace import Workspace
+            ws, name = Workspace(example), find_app(args.target, example).name
+            if args.cmd == "submit":
+                r = ws.submit_app(name, args.date)
+                print(f"OK: {name} submitted on {r['date']}. Frozen copies are in {r['path']}")
+                if r["stale"]:
+                    print("WARN: the PDFs were older than your latest edits; they were frozen as they are.")
+            else:
+                r = ws.unsubmit_app(name)
+                print(f"OK: {name} can be edited again." + (f" The sent PDFs are kept in {r['kept']}" if r["kept"] else ""))
+            return
         typst = find_typst()
         if args.cmd == "build":
             if args.target == "master":
@@ -498,10 +528,15 @@ def main():
             if not folders:
                 raise BuildError(f"No applications with tailor.yaml in {apps_dir}")
             for f in folders:
+                sub = submission(f)
+                if sub:
+                    print(f"Skipping {f.name} (submitted {sub.get('date')})")
+                    continue
                 print_build(f.resolve(), example)
     except BuildError as e:
         sys.exit(f"ERROR: {e}")
 
 
 if __name__ == "__main__":
+    sys.modules.setdefault("build", sys.modules[__name__])  # studio/ imports build: share one BuildError
     main()

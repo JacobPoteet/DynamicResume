@@ -35,6 +35,8 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 **Matching cover letters.** Write paragraphs in Markdown. The letter shares the resume's header, colors and margins.
 
+**Submitted applications stay as sent.** Once you send an application, choose Mark submitted. The PDFs are frozen exactly as they are, with the tailor, letter, listing and master that made them, in the application's `submitted/` folder. Builds skip it, the app opens it read-only and shows the PDFs you sent, and the master is free to change without touching it. When a studio calls you back, you can open the resume they actually have. Unsubmit makes it editable again.
+
 **Safe editing.** The app writes YAML with round-trip formatting, so comments and layout in your files survive. Every master save keeps the previous version, the app refuses to delete a bullet an application still uses, and snapshots zip everything before a redraft or delete. Edit the files in a text editor or with Claude at any time; the app notices within a couple of seconds and reloads.
 
 ## Quick start
@@ -62,6 +64,7 @@ Drafting needs [Claude Code](https://claude.com/claude-code) installed and signe
 2. Run `python build.py serve`. Paste a job listing under New application and choose Create and draft with Claude.
 3. Review the draft: check the requirement chips, swap bullets, reword where it helps, and fill the page.
 4. Build PDFs, then check the build output says one page for both files.
+5. After you send them, choose Mark submitted so later master changes never rebuild what the studio has.
 
 Run `python build.py build master` to render the whole pool on several pages with each bullet's id, priority and tags, which makes the master easy to review.
 
@@ -77,6 +80,8 @@ python build.py build <app-folder>    # one application, by name under applicati
 python build.py build master          # the full pool, with ids, priorities and tags
 python build.py build-all             # every application
 python build.py snapshot [label]      # zip the master, applications and templates into snapshots/
+python build.py submit <app> [--date YYYY-MM-DD]   # freeze the PDFs as sent; builds skip it from then on
+python build.py unsubmit <app>        # make a submitted application editable again
 ```
 
 Add `--example` to any command to use `examples/` instead of your own data. `build <app> --template <name>` tries another template without changing the application (the trial PDF goes to `build/<app>/`).

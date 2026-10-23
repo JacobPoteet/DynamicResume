@@ -135,7 +135,7 @@ def delete_app(s, body, q, name):
 
 @route("PUT", "/api/apps/([^/]+)/tailor")
 def put_tailor(s, body, q, name):
-    s.ws.app_dir(name)
+    s.ws.require_editable(name)
     with LOCK:
         s.ws.save_tailor(name, body["tailor"])
     return {"preview": s.preview(name, "resume", body["tailor"]), "versions": s.versions(name)}
@@ -148,6 +148,7 @@ def get_preview(s, body, q, name, kind):
 
 @route("PUT", "/api/apps/([^/]+)/letter")
 def put_letter(s, body, q, name):
+    s.ws.require_editable(name)
     with LOCK:
         s.ws.save_text(name, "cover-letter.md", body["text"])
     return {"preview": s.preview(name, "letter", letter=body["text"]), "versions": s.versions(name)}
@@ -158,8 +159,21 @@ def finalize(s, body, q, name):
     return s.finalize(name)
 
 
+@route("POST", "/api/apps/([^/]+)/submit")
+def submit(s, body, q, name):
+    with LOCK:
+        return s.ws.submit_app(name, body.get("date"))
+
+
+@route("POST", "/api/apps/([^/]+)/unsubmit")
+def unsubmit(s, body, q, name):
+    with LOCK:
+        return s.ws.unsubmit_app(name)
+
+
 @route("PUT", "/api/apps/([^/]+)/listing")
 def put_listing(s, body, q, name):
+    s.ws.require_editable(name)
     with LOCK:
         if "text" in body:
             s.ws.save_text(name, "listing.md", body["text"])
@@ -175,6 +189,7 @@ def draft_status(s, body, q, name):
 
 @route("POST", "/api/apps/([^/]+)/draft")
 def draft_start(s, body, q, name):
+    s.ws.require_editable(name)
     return s.drafts.start(name)
 
 

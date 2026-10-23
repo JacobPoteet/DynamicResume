@@ -14,12 +14,20 @@ python build.py build <app-folder>   # name under applications/ or a path
 python build.py build master         # full pool, multi-page, shows bullet id | priority | tags
 python build.py build-all
 python build.py snapshot [label]     # zip master, applications, templates, Local/ into snapshots/
+python build.py submit <app> [--date YYYY-MM-DD]   # freeze the PDFs as sent (no rebuild)
+python build.py unsubmit <app>       # make it editable again
 python build.py build-all --example  # --example (before or after the subcommand) uses examples/
 ```
 
 Needs `typst` (`winget install Typst.Typst`) and `pip install -r requirements.txt`. Every build reports the page count and how full the last page is, warns if the resume passes one page, and lints for em dashes and banned phrases.
 
-The app has four areas: Applications (list, new application, delete; deleting takes a snapshot first), the editor (Resume, Cover letter and Listing tabs beside a live page preview), Master (edit bullets, tags, priorities, position details and skills, or the raw YAML; Save validates before writing and refuses to delete a bullet an application uses), and Snapshots. The app and the CLI read and write the same files, so either can be used at any time. The app saves `tailor.yaml` on every change and rebuilds the preview; it notices edits made to the files outside the app (by Claude or a text editor) within a couple of seconds and reloads. It writes YAML with ruamel round-trip, so comments and layout in `master.yaml` and `tailor.yaml` survive, and every master save keeps the previous file in `snapshots/master-history/`.
+The app has four areas: Applications (list, new application, delete; deleting takes a snapshot first), the editor (Resume, Cover letter and Listing tabs beside a live page preview, with Build PDFs and Mark submitted), Master (edit bullets, tags, priorities, position details and skills, or the raw YAML; Save validates before writing and refuses to delete a bullet an application uses), and Snapshots. The app and the CLI read and write the same files, so either can be used at any time. The app saves `tailor.yaml` on every change and rebuilds the preview; it notices edits made to the files outside the app (by Claude or a text editor) within a couple of seconds and reloads. It writes YAML with ruamel round-trip, so comments and layout in `master.yaml` and `tailor.yaml` survive, and every master save keeps the previous file in `snapshots/master-history/`.
+
+## Submitted applications
+
+Mark submitted (in the editor, or `build.py submit`) copies the application's PDFs as they are, plus `tailor.yaml`, `cover-letter.md`, `listing.md`, `listing.yaml` and the current `master.yaml`, into `applications/<app>/submitted/` with a `submitted.yaml` (date, file names, whether the PDFs were older than the inputs). From then on `build <app>` refuses (a `--template` trial build to `build/` still works), `build-all` skips it, the app opens it read-only and shows the sent PDFs, the server refuses edits and drafts, and its bullets no longer block master deletes. Snapshots include the sent PDFs. Unsubmit removes `submitted/` when the folder's PDFs still match it, and otherwise keeps it as `submitted-<date>/`.
+
+Never edit, rebuild, or unsubmit a submitted application unless the user asks. After a master change, run `build-all` (it skips submitted ones) rather than building each folder.
 
 ## Tailoring workflow (when the user pastes a job listing)
 
