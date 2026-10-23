@@ -23,6 +23,8 @@ from build import ROOT, BuildError
 HISTORY_KEEP = 50
 APP_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 SNAP_NAME = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}[A-Za-z0-9_-]*\.zip$")
+DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+FROZEN = ("tailor.yaml", "cover-letter.md", "listing.md", "listing.yaml")  # copied next to the sent PDFs
 
 
 # ---------- round-trip YAML ----------
@@ -214,6 +216,8 @@ class Workspace:
         """Bullet id -> application names that select or override it."""
         usage = {}
         for app in self.app_dirs():
+            if build.submission(app):
+                continue  # its submitted/ folder keeps its own master, so the live one is free to change
             t = self._read_yaml(app / "tailor.yaml") or {}
             ids = set((t.get("overrides") or {}).keys())
             for v in (t.get("positions") or {}).values():
@@ -273,7 +277,7 @@ class Workspace:
                 "name": app.name, "studio": target.get("studio", ""), "role": target.get("role", ""),
                 "template": t.get("template") or build.DEFAULT_TEMPLATE,
                 "updated": max(mtimes, default=0), "pdfs": self.pdf_status(app, t, master),
-                "drafted": (app / "listing.yaml").exists(),
+                "drafted": (app / "listing.yaml").exists(), "submitted": build.submission(app),
             })
         apps.sort(key=lambda a: -a["updated"])
         return apps
@@ -309,12 +313,65 @@ class Workspace:
             "listing": self._read_text(app / "listing.md") or "",
             "listing_spec": self._read_yaml(app / "listing.yaml"),
             "letter": self._read_text(app / "cover-letter.md"),
-            "pdfs": self.pdf_status(app, tailor),
+            "pdfs": self.pdf_status(app, tailor), "submitted": build.submission(app),
         }
+
+    def require_editable(self, name):
+        sub = build.submission(self.app_dir(name))
+        if sub:
+            raise BuildError(f"this application was submitted on {sub.get('date')}. Unsubmit it to make changes.")
+
+    def submit_app(self, name, date=None):
+        """Freeze what was sent: copy the PDFs as they are now (no rebuild), plus the tailor,
+        letter, listing and master that made them, into the application's submitted/ folder."""
+        app = self.app_dir(name)
+        if build.submission(app):
+            raise BuildError(f"{name} is already marked as submitted")
+        date = (date or datetime.now().strftime("%Y-%m-%d")).strip()
+        if not DATE.match(date):
+            raise BuildError(f"the date should look like 2026-10-22, not {date!r}")
+        tailor = self._read_yaml(app / "tailor.yaml") or {}
+        pdfs = self.pdf_status(app, tailor)
+        if not pdfs["resume"]["exists"]:
+            raise BuildError("there is no resume PDF yet. Build the PDFs you are sending first.")
+        dest = app / build.SUBMITTED
+        dest.mkdir()
+        files = {}
+        for key in ("resume", "letter"):
+            if pdfs[key]["exists"]:
+                shutil.copy2(app / pdfs[key]["file"], dest / pdfs[key]["file"])
+                files[key] = pdfs[key]["file"]
+        for f in FROZEN:
+            if (app / f).exists():
+                shutil.copy2(app / f, dest / f)
+        shutil.copy2(self.master_path, dest / "master.yaml")
+        stale = any(v["stale"] for v in pdfs.values())
+        info = {"date": date, **files, "stale": stale}
+        (dest / "submitted.yaml").write_text(yaml.safe_dump(info, sort_keys=False), encoding="utf-8", newline="\n")
+        return {**info, "path": dest.relative_to(ROOT).as_posix()}
+
+    def unsubmit_app(self, name):
+        """Make a submitted application editable again. The frozen copy is removed only when
+        the folder still holds identical PDFs; otherwise it is kept as submitted-<date>/."""
+        app = self.app_dir(name)
+        sub = build.submission(app)
+        if not sub:
+            raise BuildError(f"{name} is not marked as submitted")
+        src = app / build.SUBMITTED
+        pdfs = [sub.get(k) for k in ("resume", "letter") if sub.get(k)]
+        same = all((app / f).exists() and (app / f).read_bytes() == (src / f).read_bytes() for f in pdfs)
+        if same:
+            shutil.rmtree(src)
+            return {"kept": None}
+        dest, n = app / f"{build.SUBMITTED}-{sub.get('date')}", 2
+        while dest.exists():
+            dest, n = app / f"{build.SUBMITTED}-{sub.get('date')}-{n}", n + 1
+        src.rename(dest)
+        return {"kept": dest.relative_to(ROOT).as_posix()}
 
     def delete_app(self, name):
         """Remove an application folder, PDFs included. Takes a snapshot first, which keeps
-        everything but the PDFs (a rebuild makes those again)."""
+        everything but the PDFs a rebuild can make again (sent PDFs are kept)."""
         app = self.app_dir(name)
         backup = self.create_snapshot(f"before-delete-{name}")
         shutil.rmtree(app)
@@ -344,7 +401,9 @@ class Workspace:
         for r in roots:
             if r.is_dir():
                 for p in sorted(r.rglob("*")):
-                    if p.is_file() and p.suffix.lower() != ".pdf":
+                    # Built PDFs can be made again; the ones frozen when an application was sent cannot.
+                    sent = p.parent.name.startswith(build.SUBMITTED)
+                    if p.is_file() and (p.suffix.lower() != ".pdf" or sent):
                         yield p
         if not self.example and (ROOT / "CLAUDE.local.md").exists():
             yield ROOT / "CLAUDE.local.md"

@@ -257,6 +257,9 @@ label.field { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
 .warnings li { font-size: 12px; background: var(--warn-soft); color: var(--warn); padding: 4px 8px; border-radius: var(--radius); }
 .warnings li.err { background: var(--bad-soft); color: var(--bad); white-space: pre-wrap; }
 .pages { display: grid; gap: 14px; }
+.sent-pdf { width: 100%; height: calc(100vh - var(--top) - 150px); min-height: 480px; border: 1px solid var(--line); border-radius: 2px; background: #fff; display: block; }
+.sent-note { background: var(--good-soft); color: var(--good); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
+.pane.left[inert] > :not(.sent-note) { opacity: 0.7; }
 .sheet { position: relative; }
 .sheet img { width: 100%; display: block; background: #fff; border-radius: 2px; box-shadow: 0 1px 2px rgba(0,0,0,0.12), 0 4px 16px rgba(0,0,0,0.08); }
 .sheet .lbl { position: absolute; top: 6px; right: 8px; }
