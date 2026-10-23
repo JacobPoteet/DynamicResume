@@ -129,12 +129,31 @@ build.py               merge, lint, compile, page fill
 studio/                the editor app (server, Claude drafts, workspace and snapshots)
 templates/             Typst resume and cover letter templates
 examples/              fictional demo master and application
+tests/, scripts/       pytest suite and the privacy check, run by CI (.github/workflows/ci.yml)
 CLAUDE.md              schemas and the tailoring workflow, written for Claude and for you
 data/, applications/   your master and applications (gitignored)
 snapshots/, build/     backups and build output (gitignored)
 ```
 
 The full `master.yaml`, `tailor.yaml` and `listing.yaml` schemas are in [CLAUDE.md](CLAUDE.md).
+
+## Checks
+
+GitHub Actions runs four jobs on every pull request and push to `main`, all on the fictional demo data:
+
+- **Syntax and lint:** `ruff` on the Python, `node --check` on the app's JavaScript.
+- **Privacy guard:** `scripts/check_privacy.py` fails if a tracked file, or the text inside a demo PDF, holds personal-looking data. That covers anything under `data/`, `applications/`, `Local/`, `snapshots/` or `build/`, `CLAUDE.local.md`, a PDF outside `examples/`, a real email address or phone number, or an absolute path into a home folder. Add a repository secret named `PRIVATE_TERMS` (your name, employers, comma separated) and it fails on those too, without the terms ever appearing in the repo or the log.
+- **Unit tests:** `pytest` covering bullet resolution, draft parsing, the data home, submit and unsubmit, snapshots, round-trip YAML, studio notes, gaps, and the file server's path checks.
+- **Demo build (Windows):** builds the demo with Typst, runs `check` so a resume over one page fails, and reads the PDFs back as an ATS would. That checks the headings, section order, contact details, the company on every role, no em dashes, and that the committed demo PDFs match a fresh build.
+
+Run them locally with:
+
+```
+pip install -r requirements.txt -r requirements-dev.txt
+ruff check .
+python scripts/check_privacy.py
+python -m pytest            # the Typst tests skip if typst is not installed
+```
 
 ## Privacy
 
