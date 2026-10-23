@@ -104,6 +104,17 @@ def test_saving_a_tailor_keeps_its_comments(ws):
     assert "# Reword a bullet for this listing without touching the master:" in text
 
 
+def test_saving_a_tailor_keeps_a_new_project_order(ws):
+    path = ws.apps_dir / EXAMPLE_APP / "tailor.yaml"
+    before = path.read_text(encoding="utf-8")
+    t = build.load_yaml(path)
+    t["projects"] = dict(reversed(list(t["projects"].items())))
+    ws.save_tailor(EXAMPLE_APP, t)
+    assert list(build.load_yaml(path)["projects"]) == list(t["projects"])
+    text = path.read_text(encoding="utf-8")
+    assert "# printed in this order" in text and text.count("\n\n") == before.count("\n\n")
+
+
 def test_saving_the_master_keeps_comments_and_history(ws):
     m = ws.master()
     m["positions"][0]["bullets"][0]["short"] = "Led ranked mode design"

@@ -122,12 +122,16 @@ def merge(old, new):
     comments attached to anything that survives stay where they were."""
     if isinstance(new, dict):
         node = old if isinstance(old, CommentedMap) else CommentedMap()
-        # When keys come or go, the blank line after the map moves to its new last key.
-        end = _pop_tail(node) if node and set(node) != set(new) else None
+        # When keys come, go or move, the blank line after the map moves to its new last key.
+        moved = [k for k in node if k in new] != [k for k in new if k in node]
+        end = _pop_tail(node) if node and (moved or set(node) != set(new)) else None
         for k in [k for k in node if k not in new]:
             del node[k]
         for k, v in new.items():
             node[k] = merge(node[k] if k in node else None, v)
+        if list(node) != list(new):  # key order matters, e.g. tailor projects print in order
+            for k in new:
+                node.move_to_end(k)
         _set_tail(node, end)
         return node
     if isinstance(new, list):

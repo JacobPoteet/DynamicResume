@@ -340,10 +340,10 @@ def resolve(master, tailor, master_mode):
     for pid in project_sel:
         if pid not in all_projects:
             raise BuildError(f"unknown project id '{pid}' in tailor.yaml")
-    for pr in master.get("projects", []):
-        if pr["id"] not in project_sel:
-            continue
-        ids = project_sel[pr["id"]]
+    # Projects print in the tailor's order (the master's in master mode), so the one that
+    # fits the listing best can lead. Positions always keep the master's newest-first order.
+    for pid, ids in project_sel.items():
+        pr = all_projects[pid]
         projects.append({
             "name": pr["name"], "url": pr.get("url"), "summary": pr.get("summary"),
             "bullets": pick(pr.get("bullets") or [], ids, f"project {pr['id']}"),

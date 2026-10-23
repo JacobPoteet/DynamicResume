@@ -24,7 +24,7 @@ python build.py build-all --example  # --example (before or after the subcommand
 
 Needs `typst` (`winget install Typst.Typst`) and `pip install -r requirements.txt`. Every build reports the page count and how full the last page is, and lints for em dashes and banned phrases. When a resume runs over it says about how many lines are on the extra page. It also lists bullets whose last line is nearly empty (trimming a few words there saves a whole line) and warns when a role line or the headline wraps.
 
-**Data home.** In a linked git worktree, `build.py`, the app and drafts read and write the main checkout's `data/`, `applications/`, `Local/`, `snapshots/` and `CLAUDE.local.md` (it says "Using data in ..."). Code, templates, `examples/` and `build/` stay with the worktree. `DYNAMICRESUME_HOME` points them anywhere else. So in a worktree, edit the main checkout's data files directly; never copy data into the worktree.
+**Data home.** In a linked git worktree, `build.py`, the app and drafts read and write the main checkout's `data/`, `applications/`, `Local/`, `snapshots/` and `CLAUDE.local.md` (it says "Using data in ..."). Code, templates, `examples/` and `build/` stay with the worktree. `DYNAMICRESUME_HOME` points them anywhere else. So in a worktree, edit the main checkout's data files directly; never copy data into the worktree. The Claude desktop app refuses Write and Edit on files outside the worktree, so write those data files with a shell command (or through `build.py` and the app).
 
 **After editing the master,** run `python build.py check`. It rebuilds every unsubmitted application into `build/check/`, never the application folders, and compares each resume with its last real build. It exits nonzero when one goes past one page. The Master page runs the same check after every save. Then fix what it reports (a `short` text, a different bullet) before building.
 
@@ -112,7 +112,7 @@ positions:                                    # only listed positions appear
     bullets: [ordered bullet ids]
 skills_first: [items moved to the front of their group]
 skill_groups: [groups to show, in order]      # optional, default all
-projects: [project ids]                       # or {id: {bullets: [ids]}}
+projects: [project ids]                       # or {id: {bullets: [ids]}}; printed in this order
 overrides: {bullet id: replacement text}
 short: [bullet ids]                           # use the master's `short` text for these; an override wins
 cover_letter: {greeting, closing, date}       # all optional

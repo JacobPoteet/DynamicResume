@@ -609,7 +609,7 @@ function renderResumeLeft() {
   html += reqsBlock();
   if ((m.games || []).length) html += sec("Games", (t.template || S.init.default_template) === "resume-games" ? "" : "only resume-games shows this section") + gamesBlock();
   html += sec("Experience", "drag to reorder (Alt+Up/Down from the keyboard), double-click a bullet to edit") +m.positions.map((p) => ownerBlock(p, "positions")).join("");
-  if ((m.projects || []).length) html += sec("Personal projects") + m.projects.map((p) => ownerBlock(p, "projects")).join("");
+  if ((m.projects || []).length) html += sec("Personal projects", "selected projects print in this order") + projectOrder().map((p) => ownerBlock(p, "projects")).join("");
   html += sec("Skills", "click a skill to move it to the front of its line") + skillsBlock();
   left.innerHTML = html;
   const ta = left.querySelector("textarea[data-edit]");
@@ -617,6 +617,13 @@ function renderResumeLeft() {
     ta.focus();
     ta.setSelectionRange(ta.value.length, ta.value.length);
   }
+}
+
+// Selected projects in the tailor's order (the resume's), then the rest in master order.
+function projectOrder() {
+  const all = S.master.projects || [];
+  const on = Object.keys(S.app.tailor.projects || {});
+  return [...on.map((id) => all.find((p) => p.id === id)).filter(Boolean), ...all.filter((p) => !on.includes(p.id))];
 }
 
 function sec(title, hint = "") {
@@ -647,6 +654,8 @@ function ownerBlock(p, kind) {
         title="${on ? "Leave this off the resume" : "Put this on the resume"}" aria-label="Show ${esc(title)} on the resume">
       <div class="grow"><div class="ttl">${esc(title)}</div><div class="sub">${esc(sub)}</div></div>
       <span class="count" title="Bullets selected">${chosen.length} of ${bullets.length}</span>
+      ${on && kind === "projects" && Object.keys(S.app.tailor.projects).indexOf(p.id) > 0
+        ? `<button class="ghost small" data-act="project-up" data-owner="${esc(p.id)}" title="Print this project before the one above">Move up</button>` : ""}
       ${on ? "" : `<button class="ghost small" data-act="expand" data-owner="${esc(p.id)}" aria-expanded="${!!open}">${open ? "Hide" : "Show"} bullets</button>`}
     </div>
     ${rows}
@@ -847,7 +856,13 @@ document.addEventListener("click", async (e) => {
   const act = el.dataset.act;
   const li = el.closest(".b");
   const backToRow = li && { act: "edit", id: li.dataset.id };
-  if (act === "edit") {
+  if (act === "project-up") {
+    const keys = Object.keys(t.projects);
+    const i = keys.indexOf(el.dataset.owner);
+    [keys[i - 1], keys[i]] = [keys[i], keys[i - 1]];
+    t.projects = Object.fromEntries(keys.map((k) => [k, t.projects[k]]));
+    changed();
+  } else if (act === "edit") {
     S.ui.editing = li.dataset.id;
     TABS[S.tab].left();
   } else if (act === "edit-cancel") {
