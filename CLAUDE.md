@@ -19,6 +19,7 @@ python build.py draft <app>          # headless Claude draft, as the app does, t
 python build.py snapshot [label]     # zip master, applications, templates, Local/ into snapshots/
 python build.py submit <app> [--date YYYY-MM-DD]   # freeze the PDFs as sent (no rebuild)
 python build.py unsubmit <app>       # make it editable again
+python build.py track <app> [stage] [--date --note --scheduled --format --length --with "Name, Role"]   # log what happened after sending; no stage prints the history
 python build.py build-all --example  # --example (before or after the subcommand) uses examples/
 ```
 
@@ -28,13 +29,19 @@ Needs `typst` (`winget install Typst.Typst`) and `pip install -r requirements.tx
 
 **After editing the master,** run `python build.py check`. It rebuilds every unsubmitted application into `build/check/`, never the application folders, and compares each resume with its last real build. It exits nonzero when one goes past one page. The Master page runs the same check after every save. Then fix what it reports (a `short` text, a different bullet) before building.
 
-The app has four areas: Applications (list, new application, delete; deleting takes a snapshot first), the editor (Resume, Cover letter and Listing tabs beside a live page preview, with Build PDFs and Mark submitted), Master (edit bullets, short texts, tags, priorities, position details and skills, or the raw YAML; Save validates before writing, refuses to delete a bullet an application uses, then shows which applications the change affects; a Gaps view ranks what listings asked for that the master lacks), and Snapshots. The app and the CLI read and write the same files, so either can be used at any time. The app saves `tailor.yaml` on every change and rebuilds the preview; it notices edits made to the files outside the app (by Claude or a text editor) within a couple of seconds and reloads. It writes YAML with ruamel round-trip, so comments and layout in `master.yaml` and `tailor.yaml` survive, and every master save keeps the previous file in `snapshots/master-history/`.
+The app has four areas: Applications (a board of every application by stage, with List, Timeline and Stats views and New application; see Application tracking below; deleting from List takes a snapshot first), the editor (Resume, Cover letter and Listing tabs beside a live page preview, with Build PDFs and Mark submitted), Master (edit bullets, short texts, tags, priorities, position details and skills, or the raw YAML; Save validates before writing, refuses to delete a bullet an application uses, then shows which applications the change affects; a Gaps view ranks what listings asked for that the master lacks), and Snapshots. The app and the CLI read and write the same files, so either can be used at any time. The app saves `tailor.yaml` on every change and rebuilds the preview; it notices edits made to the files outside the app (by Claude or a text editor) within a couple of seconds and reloads. It writes YAML with ruamel round-trip, so comments and layout in `master.yaml` and `tailor.yaml` survive, and every master save keeps the previous file in `snapshots/master-history/`.
 
 ## Submitted applications
 
 Mark submitted (in the editor, or `build.py submit`) copies the application's PDFs as they are, plus `tailor.yaml`, `cover-letter.md`, `listing.md`, `listing.yaml` and the current `master.yaml`, into `applications/<app>/submitted/` with a `submitted.yaml` (date, file names, whether the PDFs were older than the inputs). From then on `build <app>` refuses (a `--template` trial build to `build/` still works), `build-all` skips it, the app opens it read-only and shows the sent PDFs, the server refuses edits and drafts, and its bullets no longer block master deletes. Snapshots include the sent PDFs. Unsubmit removes `submitted/` when the folder's PDFs still match it, and otherwise keeps it as `submitted-<date>/`.
 
-Never edit, rebuild, or unsubmit a submitted application unless the user asks. After a master change, run `check`, then `build-all` (both skip submitted ones) rather than building each folder.
+Never edit, rebuild, or unsubmit a submitted application unless the user asks. Tracking is the exception: `tracking.yaml` stays editable after submitting.
+
+## Application tracking
+
+The home page is a board: Drafting (not submitted), Applied, Screen, Interviewing, Offer, and Rejected, Ghosted and Withdrew trays. Each column lists the most recently updated first. Dragging a card opens a dialog for the date it happened, an optional scheduled date and time, and a note; interviews also take round (numbered automatically), format, length, interviewers, prep notes and a debrief. Moving a draft to Applied runs Mark submitted with that date. Clicking a card opens its history, where every event can be edited or deleted. A card in Applied, Screen or Interviewing with nothing logged or scheduled for 30 days shows Quiet and offers Ghosted, which counts as a rejection but is left out of time-to-rejection. Timeline and Stats (reply rate, days to reply and to rejection by stage, funnel, applications per week, interviews by format, upcoming) are computed by `studio/tracking.py`.
+
+When the user says they heard back ("Scopely rejected me yesterday"), log it with `python build.py track <app> <stage> --date ...`. Use the day it happened, not today, and never invent events. After a master change, run `check`, then `build-all` (both skip submitted ones) rather than building each folder.
 
 ## Tailoring workflow (when the user pastes a job listing)
 
@@ -120,6 +127,24 @@ cover_letter: {greeting, closing, date}       # all optional
 
 An unknown id, or a bullet selected with its `variant_of` partner, is a build error. An override or `short` id that matches no selected bullet, or a top-level key the build does not use, is a warning.
 
+## tracking.yaml schema
+
+In each application folder. The Applied date is `submitted/submitted.yaml`'s date, never stored here. Events are kept in the order logged; the board orders them by date.
+
+```yaml
+events:
+  - date: 2026-11-03               # the day it happened
+    stage: interview               # screen, interview, offer, rejected, ghosted, withdrew, note (applied only to move back)
+    scheduled: 2026-11-06 14:00    # optional: YYYY-MM-DD or YYYY-MM-DD HH:MM
+    round: 2                       # interview only, from here down
+    format: video                  # phone, video, onsite, take-home
+    length: 60                     # minutes
+    interviewers: [{name: Sam Lee, role: Lead Designer}]
+    prep: what to review
+    debrief: how it went
+    note: anything else            # any stage
+```
+
 ## listing.yaml schema
 
 Written by a Claude draft and editable on the Listing tab. The build ignores it; the app uses it for the requirement chips (covered or not by the selected bullets) and to rank unselected bullets.
@@ -156,7 +181,7 @@ CI (`.github/workflows/ci.yml`) runs ruff and `node --check`, the privacy check 
 ## Files
 
 - `build.py`: merge, lint, compile, page fill, the impact check, and the data home (`find_home`). Each template ends with a `<layout>` metadata label (page count, where the content ends, the usable area), and `timeline.typ` adds a `<bullet-fit>` label per bullet (lines, last-line fill) and a `<wrap>` label for a role line or headline that wraps; `build.py` queries all metadata. Each real build records its fill in `build/fit/<app>.json` under the data home, which `check` compares against. Errors raise `BuildError`; `collect_warnings()` gathers warnings for the app.
-- `studio/`: the editor app. `server.py` (standard library HTTP server, JSON API, 127.0.0.1 only), `draft.py` (headless Claude Code drafts), `workspace.py` (application folders, round-trip YAML merge, master history, snapshots, gap summary, studio notes), `static/` (one HTML page, plain JS and CSS, no build step).
+- `studio/`: the editor app. `server.py` (standard library HTTP server, JSON API, 127.0.0.1 only), `draft.py` (headless Claude Code drafts), `workspace.py` (application folders, round-trip YAML merge, master history, snapshots, gap summary, studio notes, tracking events), `tracking.py` (event checks, board column, quiet and ghosted rules, stats), `static/` (one HTML page, plain JS and CSS, no build step; `tracker.js` is the home page board, history, Timeline and Stats).
 - `templates/timeline.typ` (shared), `resume-games.typ`, `resume-inline.typ`: resumes grouped by company, so several roles at one company sit under one heading, each with its own dates (no company-wide span). `resume-inline` (the default) puts each game on its role line, skipping it on a role that shares the game of the role above, and repeating the company on every role after the first so a parser never reads a team name as the employer; `resume-games` adds a Games section with one undated line per game. Pick one with `template:` in `tailor.yaml`, in the app, or try one with `python build.py build <app> --template resume-games` (that trial PDF goes to `build/<app>/`, not the application folder). No template has a summary; an optional one-line headline sits under the name.
 - `templates/cover-letter.typ`: imports its colors, margins and header (name, headline, contact line) from `timeline.typ`, so the letter matches `resume-games` and `resume-inline`.
 - `templates/common.typ`: gray header band, fonts and page setup for the older `resume.typ` only. All templates read `sys.inputs.data` (resolved JSON in `build/`).

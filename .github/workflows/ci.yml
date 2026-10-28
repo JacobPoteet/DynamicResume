@@ -35,6 +35,7 @@ jobs:
         run: |
           node --version
           node --check studio/static/app.js
+          node --check studio/static/tracker.js
 
   privacy:
     name: Privacy guard

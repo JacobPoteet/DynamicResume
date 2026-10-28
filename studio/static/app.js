@@ -88,7 +88,7 @@ function route() {
   const go = a === "app" && b ? showEditor(b, c || "resume")
     : a === "master" ? showMaster(b === "raw" ? "raw" : b === "gaps" ? "gaps" : "bullets")
     : a === "snapshots" ? showSnapshots()
-    : showHome();
+    : showHome(["list", "timeline", "stats"].includes(a) ? a : "board");
   go.catch((e) => view(`<div class="page"><div class="card"><div class="bd">${esc(e.message)}</div></div></div>`));
 }
 
@@ -106,45 +106,6 @@ function pdfPill(pdfs) {
   return `<span class="pill good">PDFs current</span>`;
 }
 
-async function showHome() {
-  S.app = null;
-  const { apps } = await api("GET", "/api/apps");
-  const rows = apps.map((a) => `
-    <li><a href="#/app/${enc(a.name)}">
-      <strong>${esc(a.studio || a.name)}</strong>
-      <span class="pills"><span class="pill plain">${esc(a.template)}</span>${a.submitted
-        ? `<span class="pill good" title="PDFs frozen as sent">Submitted ${esc(fmtDay(a.submitted.date))}</span>` : pdfPill(a.pdfs)}</span>
-      <span class="sub">${esc(a.role)} · edited ${ago(a.updated)}</span>
-    </a><button class="ghost danger" data-delete="${esc(a.name)}" aria-label="Delete ${esc(a.studio || a.name)}, ${esc(a.role)}">Delete</button></li>`).join("");
-  view(`<div class="page"><div class="home">
-    <section class="card">
-      <div class="hd"><h1>Applications</h1><span class="grow"></span><span class="muted">${apps.length}</span></div>
-      ${apps.length ? `<ul class="app-list">${rows}</ul>` : `<div class="empty">Paste a job listing on the right to start your first application.</div>`}
-    </section>
-    <section class="card">
-      <div class="hd"><h2>New application</h2></div>
-      <div class="bd stack">
-        <div class="target">
-          <label class="field">Studio<input id="na-studio" placeholder="Sample Studio"></label>
-          <label class="field">Role<input id="na-role" placeholder="Gameplay Designer"></label>
-        </div>
-        <label class="field">Job listing<textarea id="na-listing" rows="12" placeholder="Paste the full listing"></textarea></label>
-        <div class="row" id="na-actions">
-          ${S.init.claude ? `<button class="primary" id="na-draft">Create and draft with Claude</button>` : ""}
-          <button id="na-create">${S.init.claude ? "Create without drafting" : "Create"}</button>
-        </div>
-        <div class="muted" style="font-size:12px">${S.init.claude
-          ? "Drafting runs Claude Code in this repo with read-only access (a minute or two). It picks and orders bullets, writes a cover letter, and lists what the master cannot back up. Without drafting, every priority 1 bullet starts selected."
-          : "Starts with every priority 1 bullet selected. Install Claude Code to draft automatically."}</div>
-        <div id="na-err" class="muted"></div>
-      </div>
-    </section>
-  </div></div>`);
-  $("#na-create").onclick = () => createApp(false);
-  if ($("#na-draft")) $("#na-draft").onclick = () => createApp(true);
-  document.querySelectorAll("[data-delete]").forEach((b) => (b.onclick = () => deleteApp(apps.find((a) => a.name === b.dataset.delete))));
-}
-
 async function deleteApp(a) {
   const label = [a.studio, a.role].filter(Boolean).join(", ") || a.name;
   const kept = a.submitted ? "everything, the PDFs you sent included" : "everything but the PDFs";
@@ -152,7 +113,7 @@ async function deleteApp(a) {
   try {
     const r = await api("DELETE", `/api/apps/${enc(a.name)}`);
     toast(`Deleted ${esc(label)}. Saved first as ${esc(r.backup)}.`, false, 7000);
-    showHome();
+    refreshHome();
   } catch (e) {
     toast(esc(e.message), true);
   }
@@ -1708,6 +1669,11 @@ async function pollVersions() {
     M.draft = null;
     showMaster(M.mode);
     return toast("Reloaded: master.yaml changed on disk");
+  }
+  if (moved && !S.app && $("#tbody")) {
+    // The board: something changed from the CLI or Claude. Leave it alone while a dialog is open.
+    if (!document.querySelector("dialog[open], .menu:popover-open")) refreshHome();
+    return;
   }
   if (!moved || !S.app || S.app.name !== name) return;
   if (S.ui.editing || ON_OUTSIDE_EDIT.blocked()) {

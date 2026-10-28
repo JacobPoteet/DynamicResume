@@ -1,0 +1,172 @@
+# Fictional demo data. Build it with: python build.py --example build master
+# Your real data goes in data/master.yaml (gitignored). Schema: see CLAUDE.md.
+
+basics:
+  name: Alex Example
+  email: alex@example.com
+  phone: "(555) 010-0199"
+  location: Springfield, USA
+  linkedin: linkedin.com/in/alex-example
+
+games:
+  - id: robo-racers
+    name: Robo Racers
+    start: 2022-01
+    end: present
+  - id: dungeon-delvers
+    name: Dungeon Delvers
+    start: 2019-06
+    end: 2021-12
+  - id: pocket-golf
+    name: Pocket Golf
+    start: 2017-06
+    end: 2019-05
+
+positions:
+  - id: pixel-forge-sr
+    company: Pixel Forge Studios
+    product: Robo Racers (mobile racing game)
+    engine: Unity
+    game: robo-racers
+    title: Senior Gameplay Designer
+    location: Springfield, USA
+    start: 2022-01
+    end: present
+    bullets:
+      - id: rr-lead
+        text: Led design for the ranked multiplayer mode from prototype through launch, including matchmaking rules, seasons, and rank rewards
+        # Optional tighter wording; a tailor.yaml lists the id under `short` to use it.
+        short: Led design for the ranked multiplayer mode from prototype through launch, including matchmaking and seasons
+        tags: [leadership, multiplayer, unity]
+        priority: 1
+      - id: rr-tools
+        text: Built an in-editor track tuning tool in C# used by the whole design team
+        tags: [tools, unity]
+        priority: 1
+      - id: rr-bots
+        text: Designed the opponent AI difficulty tiers
+        tags: [game-ai, unity]
+        priority: 2
+      - id: rr-mentor
+        text: Mentored two junior designers through their first shipped features
+        tags: [mentorship, leadership]
+        priority: 3
+      - id: rr-live
+        text: Ran weekly live events with rotating track modifiers, and used retention and completion data to decide which modifiers and rewards came back
+        tags: [live-service, analytics, balancing]
+        priority: 1
+      # Another version of rr-live for listings that ask for data science. variant_of makes
+      # selecting both a build error, and the editor unticks one when you tick the other.
+      - id: rr-live-model
+        text: Ran weekly live events with rotating track modifiers, picking which came back with a retention model I built with the analytics team
+        variant_of: rr-live
+        tags: [live-service, analytics, research]
+        priority: 2
+      - id: rr-playtests
+        text: Set up a weekly playtest loop with QA and turned each round of findings into a tuning pass
+        tags: [playtesting, process, collaboration]
+        priority: 2
+      - id: rr-boosts
+        text: Designed the boost and drafting system, balancing catch-up help for trailing racers against rewards for skilled racing lines, and tuned it across all 30 tracks
+        tags: [gameplay, systems, balancing]
+        priority: 1
+
+  - id: dd-designer
+    company: Lantern Games
+    product: Dungeon Delvers (PC and console)
+    engine: Unreal Engine 4
+    game: dungeon-delvers
+    title: Gameplay Designer
+    team: Combat Team
+    location: Shelbyville, USA
+    start: 2019-06
+    end: 2021-12
+    bullets:
+      - id: dd-enemies
+        text: Owned the design and scripting of six enemy types in Blueprints
+        tags: [game-ai, unreal]
+        priority: 1
+      - id: dd-console
+        text: Tuned controller feel and performance on console development kits
+        tags: [consoles, unreal]
+        priority: 2
+      - id: dd-ui
+        text: Prototyped the inventory screen and handed it to the UI team
+        tags: [ui, unreal]
+        priority: 3
+      - id: dd-bosses
+        text: Designed and scripted two boss encounters whose phases change with how well the party is doing, so a struggling group gets breathing room and a strong one gets pushed
+        tags: [game-ai, gameplay, unreal]
+        priority: 1
+      - id: dd-abilities
+        text: Built and balanced twelve player abilities in data tables with the systems designer, tuning cooldowns and damage so each class had a clear role in a party
+        tags: [gameplay, balancing, collaboration, unreal]
+        priority: 1
+      - id: dd-coop
+        text: Scaled enemy health, damage, and spawn counts for one to four players, and tested every party size at each milestone so solo play never felt like an afterthought
+        tags: [multiplayer, balancing, playtesting, unreal]
+        priority: 2
+
+  - id: fd-associate
+    company: Fox Den Interactive
+    product: Pocket Golf (mobile)
+    engine: Unity
+    game: pocket-golf
+    title: Associate Designer
+    location: Springfield, USA
+    start: 2017-06
+    end: 2019-05
+    bullets:
+      - id: pg-courses
+        text: Designed and scripted 40 courses across four seasonal updates
+        tags: [live-service, gameplay, unity]
+        priority: 1
+      - id: pg-physics
+        text: Tuned ball physics and wind so shots read clearly on a small screen
+        tags: [gameplay, mobile, unity]
+        priority: 2
+      - id: pg-funnel
+        text: Reworked the tutorial after funnel data showed a drop at the third hole, raising day-one retention
+        tags: [analytics, ui, unity]
+        priority: 2
+
+skills:
+  - group: Software
+    items: [Unreal Engine 4/5, Unity, C#, C++, Perforce]
+  - group: Design
+    items: [Combat Design, Enemy Design, Systems Design, Balancing, Prototyping, Playtesting, Live Events]
+  - group: Production
+    items: [Jira, Confluence, Git, Miro]
+  - group: Platforms
+    items: [PC, PS5, iOS/Android]
+
+education:
+  - school: Example State University
+    credential: "B.S. Computer Science"
+    location: Springfield, USA
+    start: 2013-08
+    end: 2017-05
+
+projects:
+  - id: sample-project
+    name: Sample Side Project
+    url: example.com/side-project
+    summary: A small puzzle game built in a weekend.
+    bullets:
+      - id: sp-shipped
+        text: Released to itch.io and used for playtesting new puzzle ideas
+        tags: [shipped]
+        priority: 2
+      - id: sp-rewind
+        text: Built a time-rewind mechanic that records every object's state, so any puzzle can be undone step by step
+        tags: [gameplay, systems]
+        priority: 1
+  - id: jam-tools
+    name: Encounter Sketchpad
+    url: example.com/sketchpad
+    summary: A free Unreal Engine plugin for blocking out encounters.
+    bullets:
+      - id: js-plugin
+        text: Lets a designer drop spawn waves on a timeline and replay the fight in the editor before any scripting
+        tags: [tools, game-ai, unreal]
+        priority: 1
