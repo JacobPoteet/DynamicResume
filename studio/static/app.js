@@ -1672,7 +1672,7 @@ async function pollVersions() {
   }
   if (moved && !S.app && $("#tbody")) {
     // The board: something changed from the CLI or Claude. Leave it alone while a dialog is open.
-    if (!document.querySelector("dialog[open]")) refreshHome();
+    if (!document.querySelector("dialog[open], .menu:popover-open")) refreshHome();
     return;
   }
   if (!moved || !S.app || S.app.name !== name) return;
