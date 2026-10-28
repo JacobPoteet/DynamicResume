@@ -36,6 +36,7 @@ jobs:
           node --version
           node --check studio/static/app.js
           node --check studio/static/tracker.js
+          node --check docs/assets/site.js
 
   privacy:
     name: Privacy guard

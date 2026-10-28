@@ -4,6 +4,8 @@ Keep all of your career history in one master file, then build a tailored one-pa
 
 Built with [Typst](https://typst.app) and a small Python app. No server, no account: everything runs on your machine, and your data stays in gitignored files.
 
+**[See the project page](https://jacobpoteet.github.io/DynamicResume/)** for a quick tour and a live demo.
+
 ![The editor: listing requirements as chips above the bullet list, with a live one-page preview and fill meter on the right](docs/editor.png)
 
 ## Why
@@ -133,6 +135,7 @@ studio/                the editor app (server, Claude drafts, workspace and snap
 templates/             Typst resume and cover letter templates
 examples/              fictional demo master and application
 tests/, scripts/       pytest suite and the privacy check, run by CI (.github/workflows/ci.yml)
+docs/                  the GitHub Pages project page (plain HTML, CSS and JS) and README screenshots
 CLAUDE.md              schemas and the tailoring workflow, written for Claude and for you
 data/, applications/   your master and applications (gitignored)
 snapshots/, build/     backups and build output (gitignored)
@@ -145,7 +148,7 @@ The full `master.yaml`, `tailor.yaml` and `listing.yaml` schemas are in [CLAUDE.
 GitHub Actions runs four jobs on every pull request and push to `main`, all on the fictional demo data:
 
 - **Syntax and lint:** `ruff` on the Python, `node --check` on the app's JavaScript.
-- **Privacy guard:** `scripts/check_privacy.py` fails if a tracked file, or the text inside a demo PDF, holds personal-looking data. That covers anything under `data/`, `applications/`, `Local/`, `snapshots/` or `build/`, `CLAUDE.local.md`, a PDF outside `examples/`, a real email address or phone number, or an absolute path into a home folder. Add a repository secret named `PRIVATE_TERMS` (your name, employers, comma separated) and it fails on those too, without the terms ever appearing in the repo or the log.
+- **Privacy guard:** `scripts/check_privacy.py` fails if a tracked file, or the text inside a demo PDF, holds personal-looking data. That covers anything under `data/`, `applications/`, `Local/`, `snapshots/` or `build/`, `CLAUDE.local.md`, a PDF outside `examples/`, a real email address or phone number, or an absolute path into a home folder. Add a repository secret named `PRIVATE_TERMS` (your name, employers, comma separated) and it fails on those too, without the terms ever appearing in the repo or the log. Phrases that are public on purpose, such as the author credit on the project page, go in `scripts/public-terms.txt`; the check removes them before matching, so a surname or employer on its own still fails.
 - **Unit tests:** `pytest` covering bullet resolution, draft parsing, the data home, submit and unsubmit, application tracking and stats, snapshots, round-trip YAML, studio notes, gaps, and the file server's path checks.
 - **Demo build (Windows):** builds the demo with Typst, runs `check` so a resume over one page fails, and reads the PDFs back as an ATS would. That checks the headings, section order, contact details, the company on every role, no em dashes, and that the committed demo PDFs match a fresh build.
 
