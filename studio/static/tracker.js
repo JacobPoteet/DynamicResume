@@ -149,10 +149,7 @@ function cardMeta(a) {
 function card(a) {
   return `<article class="tcard${a.track.quiet ? " quiet" : ""}" draggable="true" tabindex="0" data-app="${esc(a.name)}"
       aria-label="${esc(appLabel(a))}, ${esc(a.role)}, ${COL_LABEL[a.track.column]}">
-    <div class="tc-top"><strong>${esc(appLabel(a))}</strong>
-      ${a.track.column === "drafting"
-        ? `<button class="ghost small tc-move" data-act="stage" data-arg="applied" aria-label="Move ${esc(appLabel(a))} to Applied">Move</button>`
-        : menu("Move", moveItems(a.track), { cls: "ghost small tc-move", aria: `Move ${appLabel(a)} to`, end: true })}</div>
+    <strong>${esc(appLabel(a))}</strong>
     <div class="tc-role">${esc(a.role)}</div>
     <div class="tc-meta">${cardMeta(a)}</div>
   </article>`;
@@ -188,10 +185,6 @@ function wireBoard() {
   body.onclick = (e) => {
     const t = e.target;
     if (t.closest("[data-ghost]")) return openEvent(findApp(t.closest("[data-ghost]").dataset.ghost), { stage: "ghosted" });
-    // The card's Move menu: an item opens the dialog for that stage; the button only opens the menu.
-    const pick = t.closest("[data-act=stage]");
-    if (pick) return openEvent(findApp(pick.closest(".tcard").dataset.app), { stage: pick.dataset.arg });
-    if (t.closest(".menu-btn, .menu")) return;
     if (t.closest("[data-tray]")) {
       const k = t.closest("[data-tray]").dataset.tray;
       T.tray = T.tray === k ? "" : k;
