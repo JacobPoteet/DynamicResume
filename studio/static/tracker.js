@@ -84,8 +84,8 @@ function newAppForm() {
         : "Starts with every priority 1 bullet selected. Install Claude Code to draft automatically."}</div>
       <div id="na-err" class="muted"></div>
       <div class="row dlg-ft">
-        <button id="na-cancel" type="button">Cancel</button>
         <span class="grow"></span>
+        <button id="na-cancel" type="button">Cancel</button>
         <button id="na-create">${S.init.claude ? "Create without drafting" : "Create"}</button>
         ${S.init.claude ? `<button class="primary" id="na-draft">Create and draft with Claude</button>` : ""}
       </div>
@@ -296,7 +296,8 @@ function openEvent(a, opts = {}) {
         <label class="field">Note<textarea id="ev-note" rows="2" placeholder="${s === "rejected" ? "Form email, feedback given" : "Anything worth remembering"}">${esc(ev.note || "")}</textarea></label>
         <div id="ev-err" class="ev-err" role="alert"></div>
         <div class="row dlg-ft">
-          <button type="button" id="ev-cancel">Cancel</button><span class="grow"></span>
+          ${editing ? `<button type="button" class="ghost quiet-danger" id="ev-delete">Delete entry</button>` : ""}<span class="grow"></span>
+          <button type="button" id="ev-cancel">Cancel</button>
           <button class="primary" type="submit">${editing ? "Save" : s === "note" ? "Add note" : s === "interview" && t.column === "interviewing" ? "Add round" : "Move"}</button>
         </div>
       </div></form>`;
@@ -322,6 +323,7 @@ function openEvent(a, opts = {}) {
       else rows[0].querySelectorAll("input").forEach((i) => (i.value = ""));
     });
     $("#ev-cancel", dlg).onclick = () => dlg.close();
+    if (editing) $("#ev-delete", dlg).onclick = remove;
     $(".ev-form", dlg).onsubmit = (e) => { e.preventDefault(); save(); };
   };
   const markDay = () => {
@@ -342,6 +344,17 @@ function openEvent(a, opts = {}) {
         .filter((p) => p.name || p.role);
     }
     return out;
+  };
+  const remove = async () => {
+    if (!confirm(`Delete the ${EV_LABEL[ev.stage].toLowerCase()} on ${fmtDay(ev.date)}?`)) return;
+    try {
+      await api("DELETE", `/api/apps/${enc(a.name)}/events/${opts.index}`);
+      dlg.close();
+      await refreshHome();
+      toast("Deleted");
+    } catch (e) {
+      $("#ev-err", dlg).textContent = e.message;
+    }
   };
   const save = async () => {
     const body = { ...collect(), stage: ev.stage };
@@ -391,6 +404,55 @@ async function undo(name, r) {
   }
 }
 
+// ----- menus -----
+
+// A button that opens a short menu. The menu is a popover, so it sits in the top layer above
+// a modal and is never clipped. Items: {label, act, arg, hint, danger} run an action through
+// the surrounding click handler; {label, href, tab} go somewhere; "-" is a divider.
+let menuSeq = 0;
+function menu(label, items, { cls = "", aria = "", end = false } = {}) {
+  const id = `menu-${++menuSeq}`;
+  const body = items.map((it) => it === "-" ? `<hr>`
+    : it.href ? `<a role="menuitem" href="${it.href}"${it.tab ? ` target="_blank" rel="noopener"` : ""}>${esc(it.label)}${it.tab ? `<span class="faint" aria-label="(new tab)">↗</span>` : ""}</a>`
+    : `<button type="button" role="menuitem" data-act="${it.act}"${it.arg != null ? ` data-arg="${esc(it.arg)}"` : ""}${it.danger ? ` class="danger"` : ""}>${esc(it.label)}${it.hint ? `<span class="faint">${esc(it.hint)}</span>` : ""}</button>`).join("");
+  return `<button type="button" class="menu-btn ${cls}" popovertarget="${id}" aria-haspopup="menu" aria-expanded="false"${aria ? ` aria-label="${esc(aria)}"` : ""}>${label}</button>
+    <div popover id="${id}" class="menu${end ? " menu-end" : ""}" role="menu">${body}</div>`;
+}
+
+const menuButton = (m) => document.querySelector(`[popovertarget="${m.id}"]`);
+document.addEventListener("beforetoggle", (e) => {
+  const m = e.target;
+  if (!m.classList?.contains("menu") || e.newState !== "open") return;
+  const r = menuButton(m).getBoundingClientRect();
+  m.style.top = `${r.bottom + 4}px`;
+  if (m.classList.contains("menu-end")) Object.assign(m.style, { right: `${innerWidth - r.right}px`, left: "auto" });
+  else Object.assign(m.style, { left: `${r.left}px`, right: "auto" });
+}, true);
+document.addEventListener("toggle", (e) => {
+  const m = e.target;
+  if (!m.classList?.contains("menu")) return;
+  const btn = menuButton(m);
+  btn?.setAttribute("aria-expanded", String(e.newState === "open"));
+  if (e.newState !== "open") return;
+  const r = btn.getBoundingClientRect();
+  if (r.bottom + 4 + m.offsetHeight > innerHeight - 8) m.style.top = `${Math.max(8, r.top - m.offsetHeight - 4)}px`;
+  m.querySelector("[role=menuitem]")?.focus();
+}, true);
+document.addEventListener("keydown", (e) => {
+  const m = e.target.closest?.(".menu");
+  if (!m || !["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+  e.preventDefault();
+  const items = [...m.querySelectorAll("[role=menuitem]")];
+  const i = items.indexOf(document.activeElement);
+  const n = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : (i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+  items[n].focus();
+});
+// Picking an item closes its menu (after the click has reached the handlers that act on it).
+document.addEventListener("click", (e) => {
+  const it = e.target.closest?.(".menu [role=menuitem]");
+  if (it) it.closest(".menu").hidePopover();
+});
+
 // ----- history (a modal over the board) -----
 
 function openHistory(name) {
@@ -413,63 +475,69 @@ function eventDetail(e) {
     + (e.note ? `<p class="h-text">${esc(e.note)}</p>` : "");
 }
 
+// The stages ahead of where a card is (any, once it is closed), then the closed ones. Going
+// back is a correction, made by editing or deleting the entry instead.
+function moveItems(t) {
+  const items = [];
+  const order = ["applied", "screen", "interviewing", "offer"];
+  const at = order.indexOf(t.column);
+  for (const [stage, col] of [["screen", "screen"], ["interview", "interviewing"], ["offer", "offer"]]) {
+    if (at >= 0 && (order.indexOf(col) < at || (col === t.column && col !== "interviewing"))) continue;
+    const label = stage === "interview" ? (t.column === "interviewing" ? `Add round ${t.round + 1}` : "Interviewing") : COL_LABEL[col];
+    items.push({ label, act: "stage", arg: stage });
+  }
+  if (items.length) items.push("-");
+  for (const c of CLOSED) if (c !== t.column) items.push({ label: COL_LABEL[c], act: "stage", arg: c });
+  return items;
+}
+
 function renderHistory() {
   const a = findApp(T.hist);
   const dlg = $("#hist-dlg");
   if (!a) return dlg.close();
-  const t = a.track, sub = a.submitted;
+  const t = a.track, sub = a.submitted, drafting = t.column === "drafting";
   const sent = (k) => `/files/apps/${enc(a.name)}/submitted/${enc(sub[k])}`;
   const row = (day, cls, title, body, tools = "") => `<li class="h-ev ${cls}"><span class="h-date">${esc(fmtShort(day))}</span>
     <div class="h-body"><div class="h-line"><b>${title}</b>${tools}</div>${body}</div></li>`;
   const rows = [];
   if (t.applied) rows.push(row(t.applied, "st-applied", "Applied", `<p class="h-text faint">The day it was marked submitted.</p>`));
   for (const e of t.events) {
-    const what = `${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))}`;
     rows.push(row(e.date, `st-${EV_COLUMN[e.stage] || "note"}`, `${EV_LABEL[e.stage]}${e.round ? ` · round ${e.round}` : ""}`, eventDetail(e),
-      `<button class="ghost small" data-edit="${e.i}" aria-label="Edit ${what}">Edit</button><button class="ghost small danger" data-del="${e.i}" aria-label="Delete ${what}">Delete</button>`));
+      `<button class="ghost small h-edit" data-edit="${e.i}" aria-label="Edit ${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))}">Edit</button>`));
   }
-  const status = t.column === "drafting" ? "Still drafting"
+  const status = drafting ? "Still drafting"
     : CLOSED.includes(t.column) ? `${COL_LABEL[t.column]} ${t.closed_from === "applied" ? "with no reply" : `after ${COL_LABEL[t.closed_from].toLowerCase()}`}${t.days_to_close != null ? `, ${dayCount(t.days_to_close)} after applying` : ""}`
     : `${COL_LABEL[t.column]} since ${fmtShort(t.since)}${t.next ? ` · Next: ${fmtWhen(t.next)}` : ""}`;
-  const links = [[`#/app/${enc(a.name)}/resume`, "Open in editor", false], [`#/app/${enc(a.name)}/listing`, "Listing", false],
-    ...(sub?.resume ? [[sent("resume"), "Resume as sent", true]] : []), ...(sub?.letter ? [[sent("letter"), "Letter as sent", true]] : [])];
+  const open = [{ label: "Resume", href: `#/app/${enc(a.name)}/resume` }, { label: "Cover letter", href: `#/app/${enc(a.name)}/letter` },
+    { label: "Listing", href: `#/app/${enc(a.name)}/listing` },
+    ...(sub?.resume || sub?.letter ? ["-"] : []),
+    ...(sub?.resume ? [{ label: "Resume as sent", href: sent("resume"), tab: true }] : []),
+    ...(sub?.letter ? [{ label: "Letter as sent", href: sent("letter"), tab: true }] : [])];
   dlg.innerHTML = `<div class="dr-hd">
       <div class="grow"><h2 id="hist-h">${esc(appLabel(a))}</h2><div class="muted">${esc(a.role)}</div>
         <div class="h-status st-${t.column}">${esc(status)}</div></div>
-      <button class="ghost" id="h-close" aria-label="Close">✕</button></div>
+      ${menu("⋯", [{ label: "Delete application…", act: "delete", danger: true }], { cls: "ghost icon", aria: "More actions", end: true })}
+      <button class="ghost icon" id="h-close" aria-label="Close">✕</button></div>
     <div class="dr-bd stack">
-      ${t.quiet ? `<div class="hint warn">Nothing logged or scheduled for ${dayCount(t.days_quiet)}. <button class="small" data-act="ghost">Mark ghosted</button></div>` : ""}
+      ${t.quiet ? `<div class="hint warn">Nothing logged or scheduled for ${dayCount(t.days_quiet)}. <button class="small" data-act="stage" data-arg="ghosted">Mark ghosted</button></div>` : ""}
       <div class="row wrap h-acts">
-        <button class="primary" data-act="move">${t.column === "drafting" ? "Move to Applied" : "Move"}</button>
-        ${t.column === "drafting" ? "" : `<button data-act="note">Add note</button>`}
-        <span class="h-links">${links.map(([href, l, tab]) => `<a href="${href}"${tab ? ` target="_blank"` : ""}>${l}</a>`).join("")}</span>
+        ${drafting ? `<button class="primary" data-act="stage" data-arg="applied">Move to Applied</button>` : menu("Move to", moveItems(t), { cls: "primary" })}
+        ${drafting ? "" : `<button data-act="note">Add note</button>`}
+        ${menu("Open", open)}
       </div>
       ${rows.length ? `<ol class="hist">${rows.join("")}</ol>` : `<div class="muted">Nothing logged yet. Move it to Applied when you send it.</div>`}
-    </div>
-    <div class="dr-ft"><button class="ghost danger" data-act="delete">Delete application</button></div>`;
+    </div>`;
   $("#h-close", dlg).onclick = () => dlg.close();
-  dlg.onclick = async (e) => {
+  dlg.onclick = (e) => {
     if (e.target === dlg) return dlg.close();  // the backdrop
     const b = e.target.closest("button");
     if (!b) return;
-    if (b.dataset.act === "move") return openEvent(a);
+    if (b.dataset.act === "stage") return openEvent(a, { stage: b.dataset.arg });
     if (b.dataset.act === "note") return openEvent(a, { stage: "note" });
-    if (b.dataset.act === "ghost") return openEvent(a, { stage: "ghosted" });
     if (b.dataset.act === "delete") return deleteApp(a);  // closes this once the board reloads without it
     if (b.dataset.edit) {
       const ev = t.events.find((x) => String(x.i) === b.dataset.edit);
       return openEvent(a, { index: ev.i, event: ev });
-    }
-    if (b.dataset.del) {
-      const ev = t.events.find((x) => String(x.i) === b.dataset.del);
-      if (!confirm(`Delete the ${EV_LABEL[ev.stage].toLowerCase()} on ${fmtDay(ev.date)}?`)) return;
-      try {
-        await api("DELETE", `/api/apps/${enc(a.name)}/events/${ev.i}`);
-        await refreshHome();
-        toast("Deleted");
-      } catch (err) {
-        toast(esc(err.message), true);
-      }
     }
   };
 }
