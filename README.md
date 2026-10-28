@@ -45,6 +45,8 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 **Submitted applications stay as sent.** Once you send an application, choose Mark submitted. The PDFs are frozen exactly as they are, with the tailor, letter, listing and master that made them, in the application's `submitted/` folder. Builds skip it, the app opens it read-only and shows the PDFs you sent, and the master is free to change without touching it. When a studio calls you back, you can open the resume they actually have. Unsubmit makes it editable again.
 
+**Application tracking.** The home page is a board: Drafting, Applied, Screen, Interviewing and Offer, with Rejected, Ghosted and Withdrew trays underneath. Drag a card to its next stage and say when it happened (today, yesterday, or any date), when the call or interview is scheduled, and a note. Interview rounds record the format, length, interviewers, prep notes and a debrief. Moving a draft to Applied marks it submitted. A card with nothing logged or scheduled for 30 days asks whether you were ghosted, which counts as a rejection but stays out of time-to-rejection. Click a card for its full history, where any entry can be edited or deleted. Timeline draws every application across the calendar, and Stats shows the reply rate, days to first reply and to rejection, how far applications got, applications per week and what is coming up. Each application's history is a plain `tracking.yaml` in its folder.
+
 **Safe editing.** The app writes YAML with round-trip formatting, so comments and layout in your files survive. Every master save keeps the previous version, the app refuses to delete a bullet an application still uses, and snapshots zip everything before a redraft or delete. Edit the files in a text editor or with Claude at any time; the app notices within a couple of seconds and reloads.
 
 ## Quick start
@@ -96,6 +98,7 @@ python build.py draft <app>           # draft it with Claude Code, then build
 python build.py snapshot [label]      # zip the master, applications and templates into snapshots/
 python build.py submit <app> [--date YYYY-MM-DD]   # freeze the PDFs as sent; builds skip it from then on
 python build.py unsubmit <app>        # make a submitted application editable again
+python build.py track <app> [stage] [--date --note --scheduled --format --length --with "Name, Role"]   # log or show its history
 ```
 
 Add `--example` to any command to use `examples/` instead of your own data. `build <app> --template <name>` tries another template without changing the application (the trial PDF goes to `build/<app>/`).
@@ -143,7 +146,7 @@ GitHub Actions runs four jobs on every pull request and push to `main`, all on t
 
 - **Syntax and lint:** `ruff` on the Python, `node --check` on the app's JavaScript.
 - **Privacy guard:** `scripts/check_privacy.py` fails if a tracked file, or the text inside a demo PDF, holds personal-looking data. That covers anything under `data/`, `applications/`, `Local/`, `snapshots/` or `build/`, `CLAUDE.local.md`, a PDF outside `examples/`, a real email address or phone number, or an absolute path into a home folder. Add a repository secret named `PRIVATE_TERMS` (your name, employers, comma separated) and it fails on those too, without the terms ever appearing in the repo or the log.
-- **Unit tests:** `pytest` covering bullet resolution, draft parsing, the data home, submit and unsubmit, snapshots, round-trip YAML, studio notes, gaps, and the file server's path checks.
+- **Unit tests:** `pytest` covering bullet resolution, draft parsing, the data home, submit and unsubmit, application tracking and stats, snapshots, round-trip YAML, studio notes, gaps, and the file server's path checks.
 - **Demo build (Windows):** builds the demo with Typst, runs `check` so a resume over one page fails, and reads the PDFs back as an ATS would. That checks the headings, section order, contact details, the company on every role, no em dashes, and that the committed demo PDFs match a fresh build.
 
 Run them locally with:

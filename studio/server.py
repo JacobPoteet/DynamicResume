@@ -51,6 +51,11 @@ class Studio:
         def newest(paths):
             return max((p.stat().st_mtime for p in paths if p.exists()), default=0)
         v = {"master": newest([self.ws.master_path]), "templates": newest(build.TEMPLATES.glob("*.typ"))}
+        if not name:
+            # The board: an application created, submitted or tracked from the CLI or by Claude.
+            apps = self.ws.app_dirs()
+            v["apps"] = newest([self.ws.apps_dir, *apps, *(a / f for a in apps for f in (
+                "tracking.yaml", "tailor.yaml", f"{build.SUBMITTED}/submitted.yaml"))])
         if name:
             app = self.ws.apps_dir / name
             v["app"] = newest([*(app / f for f in ("tailor.yaml", "listing.md", "listing.yaml", "cover-letter.md")),
@@ -181,6 +186,30 @@ def submit(s, body, q, name):
 def unsubmit(s, body, q, name):
     with LOCK:
         return s.ws.unsubmit_app(name)
+
+
+# Tracking stays open on submitted applications: it records what happened after sending.
+@route("POST", "/api/apps/([^/]+)/events")
+def add_event(s, body, q, name):
+    with LOCK:
+        return s.ws.add_event(name, body.get("event"))
+
+
+@route("PUT", "/api/apps/([^/]+)/events/([0-9]+)")
+def update_event(s, body, q, name, index):
+    with LOCK:
+        return s.ws.update_event(name, int(index), body.get("event"))
+
+
+@route("DELETE", "/api/apps/([^/]+)/events/([0-9]+)")
+def delete_event(s, body, q, name, index):
+    with LOCK:
+        return s.ws.delete_event(name, int(index))
+
+
+@route("GET", "/api/stats")
+def stats(s, body, q):
+    return s.ws.stats()
 
 
 @route("PUT", "/api/apps/([^/]+)/studio-notes")

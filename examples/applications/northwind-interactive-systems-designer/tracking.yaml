@@ -1,0 +1,8 @@
+events:
+  - date: 2026-09-24
+    stage: screen
+    scheduled: 2026-09-26 11:30
+    note: 30 minute call with the recruiter
+  - date: 2026-10-08
+    stage: rejected
+    note: Form email. Went with someone with more economy experience.

@@ -18,6 +18,7 @@ from ruamel.yaml.error import YAMLError
 
 import build
 from build import ROOT, BuildError
+from studio import tracking
 
 HISTORY_KEEP = 50
 APP_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -285,6 +286,7 @@ class Workspace:
                 "template": t.get("template") or build.DEFAULT_TEMPLATE,
                 "updated": max(mtimes, default=0), "pdfs": self.pdf_status(app, t, master),
                 "drafted": (app / "listing.yaml").exists(), "submitted": build.submission(app),
+                "track": self.track(app),
             })
         apps.sort(key=lambda a: -a["updated"])
         return apps
@@ -326,6 +328,7 @@ class Workspace:
             "letter": self._read_text(app / "cover-letter.md"),
             "pdfs": self.pdf_status(app, tailor), "submitted": build.submission(app),
             "studio_notes": self.studio_notes((tailor.get("target") or {}).get("studio")),
+            "track": self.track(app),
         }
 
     def require_editable(self, name):
@@ -380,6 +383,77 @@ class Workspace:
             dest, n = app / f"{build.SUBMITTED}-{sub.get('date')}-{n}", n + 1
         src.rename(dest)
         return {"kept": build.rel(dest)}
+
+    # ----- tracking (what happened after it was sent) -----
+
+    def _events_doc(self, app):
+        path = app / tracking.FILE
+        doc = rt_load(path.read_text(encoding="utf-8")) if path.exists() else None
+        if not isinstance(doc, CommentedMap):
+            doc = CommentedMap()
+        if not isinstance(doc.get("events"), CommentedSeq):
+            doc["events"] = CommentedSeq()
+        return path, doc
+
+    @staticmethod
+    def _yaml_event(e):
+        """Store the date as a YAML date, so the file reads `date: 2026-11-03` without quotes."""
+        return {**e, "date": tracking.day(e["date"])}
+
+    def events(self, app):
+        data = self._read_yaml(app / tracking.FILE) or {}
+        return plain(data.get("events") or []) if isinstance(data, dict) else []
+
+    def track(self, app, today=None):
+        return tracking.summarize(self.events(app), build.submission(app), today)
+
+    def add_event(self, name, event):
+        """Log a stage change or note. Tracking stays open after an application is submitted.
+        Moving a draft to Applied marks it submitted on the event's date (freezing its PDFs);
+        a note given with it is kept as a note event on that day."""
+        app = self.app_dir(name)
+        if (event or {}).get("stage") == "applied" and not build.submission(app):
+            sub = self.submit_app(name, (event or {}).get("date"))
+            note = None
+            if str(event.get("note") or "").strip():
+                note = self.add_event(name, {"date": sub["date"], "stage": "note", "note": event["note"]})["index"]
+            return {"submitted": sub, "index": note, "track": self.track(app)}
+        if not build.submission(app):
+            raise BuildError(f"{name} has not been sent yet. Move it to Applied first, which marks it submitted.")
+        path, doc = self._events_doc(app)
+        e = tracking.clean_event(event, tracking.next_round(plain(doc["events"])))
+        doc["events"].append(CommentedMap(self._yaml_event(e)))
+        path.write_text(rt_dump(doc), encoding="utf-8", newline="\n")
+        return {"index": len(doc["events"]) - 1, "track": self.track(app)}
+
+    def update_event(self, name, index, event):
+        app = self.app_dir(name)
+        path, doc = self._events_doc(app)
+        if not 0 <= index < len(doc["events"]):
+            raise BuildError(f"{name} has no event {index}")
+        old = plain(doc["events"][index])
+        e = tracking.clean_event(event, old.get("round") if isinstance(old, dict) else None)
+        doc["events"][index] = merge(doc["events"][index], self._yaml_event(e))
+        path.write_text(rt_dump(doc), encoding="utf-8", newline="\n")
+        return {"index": index, "track": self.track(app)}
+
+    def delete_event(self, name, index):
+        app = self.app_dir(name)
+        path, doc = self._events_doc(app)
+        if not 0 <= index < len(doc["events"]):
+            raise BuildError(f"{name} has no event {index}")
+        del doc["events"][index]
+        path.write_text(rt_dump(doc), encoding="utf-8", newline="\n")
+        return {"track": self.track(app)}
+
+    def stats(self, today=None):
+        apps = []
+        for app in self.app_dirs():
+            t = self._read_yaml(app / "tailor.yaml") or {}
+            target = t.get("target") or {}
+            apps.append({**self.track(app, today), "name": app.name,
+                         "studio": target.get("studio", ""), "role": target.get("role", "")})
+        return tracking.stats(apps, today)
 
     def delete_app(self, name):
         """Remove an application folder, PDFs included. Takes a snapshot first, which keeps

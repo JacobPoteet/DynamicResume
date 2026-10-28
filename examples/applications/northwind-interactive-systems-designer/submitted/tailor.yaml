@@ -1,0 +1,20 @@
+target:
+  studio: Northwind Interactive
+  role: Systems Designer
+
+headline: Senior Gameplay Designer | Systems, Balancing, Live Events
+
+positions:
+  pixel-forge-sr:
+    bullets: [rr-boosts, rr-bots, rr-playtests, rr-live, rr-lead]
+  dd-designer:
+    bullets: [dd-bosses, dd-enemies, dd-abilities, dd-coop]
+  fd-associate:
+    bullets: [pg-courses, pg-physics]
+
+projects:
+  sample-project:
+    bullets: [sp-rewind, sp-shipped]
+
+cover_letter:
+  greeting: Dear Northwind Interactive team,

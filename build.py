@@ -9,6 +9,7 @@
   python build.py check                rebuild every application into build/check/ and report page changes
   python build.py submit <app> [--date YYYY-MM-DD]   freeze the PDFs you sent; builds then skip it
   python build.py unsubmit <app>       undo submit so the application can be edited and rebuilt
+  python build.py track <app> [stage]  log a reply, screen, interview, offer or rejection, or show the history
   python build.py new "<studio>" "<role>" [--listing file|-]   start an application folder
   python build.py draft <app>          draft it with headless Claude Code, as the app does
   add --example to use examples/ (the public demo data) instead of your own
@@ -673,6 +674,40 @@ def run_draft(example, name):
         print(f"WARN: {w}")
 
 
+def print_track(example, args):
+    from studio.workspace import Workspace
+    ws, app = Workspace(example), find_app(args.target, example)
+    if args.stage:
+        people = [dict(zip(("name", "role"), (x.strip() for x in w.split(",", 1)))) for w in args.interviewers]
+        event = {"stage": args.stage, "date": args.date or time.strftime("%Y-%m-%d"), "note": args.note,
+                 "scheduled": args.scheduled, "format": args.format, "length": args.length, "interviewers": people}
+        ws.add_event(app.name, event)
+        print(f"OK: logged {args.stage} for {app.name} on {event['date']}")
+    track = ws.track(app)
+    if not track["applied"]:
+        print(f"{app.name}: still drafting (mark it submitted, or track it as applied)")
+        return
+    print(f"{app.name}: {track['column']}" + (f" (from {track['closed_from']})" if track["closed_from"] else ""))
+    print(f"  {track['applied']}  applied")
+    for e in track["events"]:
+        bits = [e["stage"] + (f" round {e['round']}" if e.get("round") else "")]
+        if e.get("scheduled"):
+            bits.append(f"scheduled {e['scheduled']}")
+        if e.get("format"):
+            bits.append(e["format"] + (f", {e['length']} min" if e.get("length") else ""))
+        if e.get("interviewers"):
+            bits.append("with " + ", ".join(p.get("name", "") + (f" ({p['role']})" if p.get("role") else "")
+                                            for p in e["interviewers"]))
+        print(f"  {e['date']}  {'; '.join(bits)}")
+        for k in ("note", "prep", "debrief"):
+            if e.get(k):
+                print(f"              {k}: {e[k]}")
+    if track["next"]:
+        print(f"Next: {track['next']}")
+    if track["quiet"]:
+        print(f"Quiet for {track['days_quiet']} days. Ghosted? python build.py track {app.name} ghosted")
+
+
 def main():
     # --example works before or after the subcommand.
     common = argparse.ArgumentParser(add_help=False)
@@ -700,6 +735,16 @@ def main():
     w.add_argument("studio")
     w.add_argument("role")
     w.add_argument("--listing", help="a file with the job listing, or - to read it from stdin")
+    t = sub.add_parser("track", parents=[common], help="log what happened after sending, or show an application's history")
+    t.add_argument("target")
+    t.add_argument("stage", nargs="?", help="applied, screen, interview, offer, rejected, ghosted, withdrew or note")
+    t.add_argument("--date", help="the day it happened, YYYY-MM-DD (default today)")
+    t.add_argument("--note")
+    t.add_argument("--scheduled", help="when the call or interview takes place: YYYY-MM-DD or 'YYYY-MM-DD HH:MM'")
+    t.add_argument("--format", help="interview format: phone, video, onsite or take-home")
+    t.add_argument("--length", help="interview length in minutes")
+    t.add_argument("--with", dest="interviewers", action="append", default=[], metavar="NAME[, ROLE]",
+                   help="an interviewer; repeat for each")
     d = sub.add_parser("draft", parents=[common], help="draft an application with headless Claude Code")
     d.add_argument("target")
     d.add_argument("--no-build", action="store_true", help="do not build the PDFs after drafting")
@@ -729,6 +774,9 @@ def main():
             else:
                 r = ws.unsubmit_app(name)
                 print(f"OK: {name} can be edited again." + (f" The sent PDFs are kept in {r['kept']}" if r["kept"] else ""))
+            return
+        if args.cmd == "track":
+            print_track(example, args)
             return
         if args.cmd == "new":
             from studio.workspace import Workspace
