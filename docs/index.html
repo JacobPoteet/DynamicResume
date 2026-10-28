@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DynamicResume</title>
+<meta name="description" content="Keep your whole career in one YAML file and build a tailored one-page resume and cover letter for every job, with a local editor, Claude drafts, Typst layout and application tracking.">
+<meta name="theme-color" content="#15191b">
+<meta property="og:title" content="DynamicResume">
+<meta property="og:description" content="One master file of career data. A tailored, ATS-friendly one-page resume and cover letter for every job.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://jacobpoteet.github.io/DynamicResume/">
+<meta property="og:image" content="https://jacobpoteet.github.io/DynamicResume/img/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:ital,wght@0,400..800;1,400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="#top" aria-label="DynamicResume home">
+      <img src="assets/favicon.svg" alt="" width="26" height="26">
+      <span>DynamicResume</span>
+    </a>
+    <nav class="top-nav" aria-label="Sections">
+      <a href="#tour">Product</a>
+      <a href="#hood">Under the hood</a>
+      <a href="#start">Get started</a>
+    </nav>
+    <a class="btn btn-ghost top-gh" href="https://github.com/JacobPoteet/DynamicResume">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- Hero: the product in one interaction -->
+<section class="hero" id="top">
+  <div class="wrap">
+    <div class="hero-copy">
+      <a class="release" href="https://github.com/JacobPoteet/DynamicResume/releases/latest">v1.1.0 adds application tracking</a>
+      <h1>Write your career once.<br>Fit it to every job on one page.</h1>
+      <p class="lede">DynamicResume keeps every role, bullet and skill in one master file. For each listing it picks the bullets that match, lays them out with Typst, and tells you exactly how full the page is. It runs on your machine, and your data never leaves it.</p>
+      <div class="ctas">
+        <a class="btn btn-solid" href="https://github.com/JacobPoteet/DynamicResume">View on GitHub</a>
+        <a class="btn btn-ghost" href="#start">Try the demo locally</a>
+      </div>
+    </div>
+
+    <div class="tailor" id="tailor">
+      <div class="tailor-bar">
+        <span class="tailor-q" id="tailor-q">Pick a listing:</span>
+        <div class="listings" role="tablist" aria-labelledby="tailor-q">
+          <button role="tab" data-l="combat" aria-selected="true">Senior Combat Designer</button>
+          <button role="tab" data-l="systems" aria-selected="false">Systems Designer</button>
+          <button role="tab" data-l="technical" aria-selected="false">Technical Designer</button>
+        </div>
+      </div>
+      <div class="tailor-body">
+        <div class="master" aria-label="master.yaml">
+          <div class="pane-head"><code>master.yaml</code><span id="m-count"></span></div>
+          <ol class="m-list" id="m-list"></ol>
+        </div>
+        <div class="out">
+          <ul class="reqs" id="reqs" aria-label="Listing requirements"></ul>
+          <div class="paper" id="paper" aria-live="polite"></div>
+          <div class="fill">
+            <div class="fill-line"><strong id="fill-pct"></strong><span id="fill-note"></span></div>
+            <div class="meter"><i id="fill-bar"></i></div>
+          </div>
+        </div>
+      </div>
+      <p class="tailor-foot">Fictional demo data from the repo's <code>examples/</code> folder. This demo measures the page in your browser; the real build measures it with Typst.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Product tour -->
+<section class="tour" id="tour">
+  <div class="wrap">
+    <h2 class="sec">From listing to sent, in one local app</h2>
+
+    <article class="feat">
+      <div class="feat-copy">
+        <h3>Claude drafts it. You decide.</h3>
+        <p>Paste a job listing and choose Create and draft with Claude. Claude Code runs headlessly with read-only tools, reads your master and the listing, then picks and orders bullets, writes a headline and a cover letter, and breaks the listing into requirements.</p>
+        <p>It also says what your master can't back up. Those gaps get a topic, and the Gaps view ranks them across every application, so you know which bullet to write next.</p>
+      </div>
+      <figure class="shot"><img src="img/listing.webp" width="2880" height="1800" loading="lazy" alt="The Listing tab: Claude's notes on what it led with, two gaps the master cannot back up, studio notes, and the editable requirement list, beside a live resume preview."></figure>
+    </article>
+
+    <article class="feat flip">
+      <div class="feat-copy">
+        <h3>Edit against the listing, with a live page</h3>
+        <p>Every requirement is a chip that turns green when a selected bullet backs it up. Tick bullets on and off, drag them into order, or reword one for this job only. The preview rebuilds as you go.</p>
+        <p>The fill meter shows how much room is left. Each bullet shows its line count, and a bullet whose last line holds only a word or two gets flagged, because trimming it saves a whole line. Nothing ever shrinks the font.</p>
+      </div>
+      <figure class="shot"><img src="img/resume.webp" width="2880" height="1800" loading="lazy" alt="The Resume tab: nine of ten listing requirements covered, bullets with ids, priorities, tags and line counts, and a live one-page preview that is 76 percent full."></figure>
+    </article>
+
+    <article class="feat">
+      <div class="feat-copy">
+        <h3>Track it after you hit send</h3>
+        <p>Mark submitted freezes the exact PDFs you sent, along with the files that made them, so when a studio calls back you can open the resume they actually have.</p>
+        <p>Then drag the card along the board as you hear back: screen, interview rounds with format and interviewers, offer, rejected or ghosted. Timeline and Stats show reply rates, days to a first reply, and what's coming up.</p>
+      </div>
+      <div class="shot-stack">
+        <figure class="shot"><img src="img/board.webp" width="2880" height="960" loading="lazy" alt="The application board with Drafting, Applied, Screen, Interviewing and Offer columns, a quiet card offering Ghosted, and a scheduled second-round interview."></figure>
+        <figure class="shot"><img src="img/timeline.webp" width="2880" height="744" loading="lazy" alt="The timeline: three applications drawn across September to November, with stage changes, scheduled interviews and a rejection."></figure>
+      </div>
+    </article>
+
+    <dl class="more">
+      <div><dt>Impact check</dt><dd>Every master save rebuilds each application in the background and tells you which ones changed length or went past one page.</dd></div>
+      <div><dt>Short versions and variants</dt><dd>A bullet can carry a tighter wording, or an alternate version for listings that ask for something specific. The build refuses a bullet and its variant together.</dd></div>
+      <div><dt>ATS-friendly output</dt><dd>One column of real text and standard headings, with the company repeated on every role so autofill never reads a team name as your employer.</dd></div>
+      <div><dt>Matching cover letters</dt><dd>Written in Markdown, laid out with the resume's header, colors and margins, and drawing on your notes about the studio.</dd></div>
+      <div><dt>Writing lint</dt><dd>Builds flag em dashes and filler such as "leverage", "spearhead" and "passionate about".</dd></div>
+      <div><dt>Nothing gets lost</dt><dd>Comments in your YAML survive every save, each master save keeps the previous version, and snapshots zip everything before a redraft or delete.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<!-- Under the hood -->
+<section class="hood" id="hood">
+  <div class="wrap">
+    <h2 class="sec">Under the hood</h2>
+    <p class="sec-lede">About 6,000 lines of Python, Typst and plain JavaScript. No framework, no bundler, no database: YAML files you can read and edit, a standard-library server, and a template that measures its own layout.</p>
+
+    <figure class="pipe" aria-labelledby="pipe-cap">
+      <svg viewBox="0 0 960 300" role="img" aria-labelledby="pipe-title pipe-desc">
+        <title id="pipe-title">Build pipeline</title>
+        <desc id="pipe-desc">master.yaml and tailor.yaml go into build.py, which merges, overrides and lints them into resolved JSON. Typst compiles the JSON to a PDF and, in parallel, answers a metadata query with the page layout and each bullet's fit, which build.py turns into a fill report.</desc>
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" class="ah"/></marker>
+        </defs>
+        <g class="node file"><rect x="10" y="46" width="170" height="54" rx="8"/><text x="95" y="79">master.yaml</text></g>
+        <g class="node file"><rect x="10" y="150" width="170" height="54" rx="8"/><text x="95" y="183">tailor.yaml</text></g>
+        <g class="node core"><rect x="250" y="70" width="190" height="110" rx="10"/><text x="345" y="112" class="big">build.py</text><text x="345" y="138" class="sub">merge, override, lint</text></g>
+        <g class="node file"><rect x="500" y="98" width="130" height="54" rx="8"/><text x="565" y="131">data.json</text></g>
+        <g class="node core"><rect x="690" y="70" width="120" height="110" rx="10"/><text x="750" y="130" class="big">Typst</text></g>
+        <g class="node out"><rect x="866" y="98" width="84" height="54" rx="8"/><text x="908" y="131">PDF</text></g>
+        <path class="edge" d="M180 73 C215 73 215 105 248 105" marker-end="url(#ah)"/>
+        <path class="edge" d="M180 177 C215 177 215 145 248 145" marker-end="url(#ah)"/>
+        <path class="edge" d="M440 125 H498" marker-end="url(#ah)"/>
+        <path class="edge" d="M630 125 H688" marker-end="url(#ah)"/>
+        <path class="edge" d="M810 125 H864" marker-end="url(#ah)"/>
+        <path class="edge back" d="M750 182 V250 H345 V184" marker-end="url(#ah)"/>
+        <text x="548" y="242" class="lbl">typst query: &lt;layout&gt; &lt;bullet-fit&gt; &lt;wrap&gt;</text>
+        <text x="345" y="282" class="lbl dim">Build report: 1 page, 76% full, about 16 lines free, trim rr-live</text>
+      </svg>
+      <figcaption id="pipe-cap">Compile and query run in parallel. The template leaves invisible metadata behind, and the build reads it back to report fill, flag bullets to trim, and catch lines that wrap.</figcaption>
+    </figure>
+
+    <div class="notes">
+      <article class="note">
+        <h3>A template that measures itself</h3>
+        <p>Typst lays out the page, and while it does, each bullet records how many lines it took and how full its last line is. <code>build.py</code> queries those labels instead of guessing from character counts, so "about 16 lines free" means 16 lines.</p>
+<pre><code><span class="c">// templates/timeline.typ</span>
+<span class="k">let</span> n = lines(b.text)
+...
+[#metadata((id: b.id, lines: n,
+  last: measure(tail).width / width)) &lt;bullet-fit&gt;]</code></pre>
+      </article>
+
+      <article class="note">
+        <h3>An agent with read-only hands</h3>
+        <p>Drafts run Claude Code headlessly in the data folder, so the project's own rules apply. It can read, glob and grep, and nothing else. It answers with one JSON object, and every bullet id in it is checked against the master before a file is written.</p>
+<pre><code><span class="c"># studio/draft.py</span>
+READ_ONLY = [<span class="s">"Read"</span>, <span class="s">"Glob"</span>, <span class="s">"Grep"</span>]
+cmd = [exe, <span class="s">"-p"</span>, <span class="s">"--output-format"</span>, <span class="s">"stream-json"</span>,
+       <span class="s">"--allowedTools"</span>, *READ_ONLY,
+       <span class="s">"--disallowedTools"</span>, *DENY]</code></pre>
+      </article>
+
+      <article class="note">
+        <h3>Local by construction</h3>
+        <p>The editor is a standard-library <code>ThreadingHTTPServer</code> bound to 127.0.0.1, serving one page of plain JavaScript with no build step. It rejects other Host headers to block DNS rebinding, and writes need a custom header that other sites can't send.</p>
+<pre><code><span class="c"># studio/server.py</span>
+<span class="k">if</span> host <span class="k">not in</span> (<span class="s">"127.0.0.1"</span>, <span class="s">"localhost"</span>):
+    <span class="k">return</span> self.send_json({<span class="s">"error"</span>: <span class="s">"bad host"</span>}, 403)
+<span class="k">if</span> method != <span class="s">"GET"</span> <span class="k">and</span> self.headers.get(<span class="s">"X-Studio"</span>) != <span class="s">"1"</span>:
+    <span class="k">return</span> self.send_json(..., 403)</code></pre>
+      </article>
+
+      <article class="note">
+        <h3>Your files stay yours</h3>
+        <p>The app and the command line edit the same YAML. Saves go through ruamel's round-trip mode, so your comments and layout survive, and the app notices edits made in a text editor within a couple of seconds. Git worktrees all share one copy of the data.</p>
+<pre><code><span class="c"># tailor.yaml: a few lines per job</span>
+headline: Senior Gameplay Designer | Combat, Balancing
+positions:
+  dd-designer:
+    bullets: [dd-bosses, dd-enemies, dd-abilities]
+short: [rr-lead]</code></pre>
+      </article>
+
+      <article class="note">
+        <h3>CI that guards a public repo</h3>
+        <p>The tool runs on personal data in a public repository. A privacy job scans every tracked file, and the text inside the demo PDFs, for real emails, phone numbers, home-folder paths, and a secret list of names that must never be committed.</p>
+<pre><code>Syntax and lint        ruff, node --check
+Privacy guard          tracked files + demo PDF text
+Unit tests             pytest, demo data only
+Demo build (Windows)   one page, ATS text, fresh PDFs</code></pre>
+      </article>
+
+      <article class="note">
+        <h3>Tested the way an ATS reads</h3>
+        <p>Applicant tracking systems read text, not layout. The Windows CI job builds the demo with real Typst, then reads the PDFs back with pypdf to check headings, section order, contact details, the company on every role, and that the committed PDFs match a fresh build.</p>
+<pre><code><span class="c"># tests/test_ats.py</span>
+<span class="k">def</span> pdf_text(path):
+    <span class="k">from</span> pypdf <span class="k">import</span> PdfReader
+    <span class="k">return</span> <span class="s">"\n"</span>.join(page.extract_text() <span class="k">or</span> <span class="s">""</span>
+                     <span class="k">for</span> page <span class="k">in</span> PdfReader(path).pages)</code></pre>
+      </article>
+    </div>
+
+    <ul class="stack" aria-label="Built with">
+      <li>Python 3, standard library server</li>
+      <li>Typst</li>
+      <li>ruamel.yaml</li>
+      <li>Plain JavaScript and CSS</li>
+      <li>Claude Code, headless</li>
+      <li>pytest and GitHub Actions</li>
+    </ul>
+  </div>
+</section>
+
+<!-- Get started -->
+<section class="start" id="start">
+  <div class="wrap start-in">
+    <div>
+      <h2 class="sec">Try it on the demo data</h2>
+      <p>You need Python 3 and the Typst CLI. The demo opens the editor on a fictional designer with four applications at different stages. Drafting with Claude needs Claude Code installed and signed in; without it, you pick the bullets yourself.</p>
+      <p><a href="https://github.com/JacobPoteet/DynamicResume#using-it-for-real">Read how to set it up with your own history</a></p>
+    </div>
+    <div class="term">
+      <div class="term-bar"><span></span><span></span><span></span></div>
+<pre><code><span class="p">&gt;</span> git clone https://github.com/JacobPoteet/DynamicResume
+<span class="p">&gt;</span> cd DynamicResume
+<span class="p">&gt;</span> winget install Typst.Typst
+<span class="p">&gt;</span> pip install -r requirements.txt
+<span class="p">&gt;</span> python build.py --example serve
+<span class="o">DynamicResume editor (example data): http://127.0.0.1:8765/</span></code></pre>
+      <button class="copy" type="button" data-copy="git clone https://github.com/JacobPoteet/DynamicResume&#10;cd DynamicResume&#10;winget install Typst.Typst&#10;pip install -r requirements.txt&#10;python build.py --example serve">Copy commands</button>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <p>Designed and built by Jacob Poteet.</p>
+    <nav aria-label="Author">
+      <a href="https://github.com/JacobPoteet">GitHub</a>
+      <a href="https://www.linkedin.com/in/JacobPoteet">LinkedIn</a>
+      <a href="https://github.com/JacobPoteet/DynamicResume/releases">Releases</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

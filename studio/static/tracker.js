@@ -591,7 +591,7 @@ function renderTimeline() {
     const segs = st.map(([d, col], i) => {
       if (CLOSED.includes(col)) return "";
       const to = st[i + 1]?.[0] ?? (closed ? d : today);
-      return `<i class="seg st-${col}" style="left:${x(d)};width:calc(${x(to)} - ${x(d)})" title="${COL_LABEL[col]}: ${esc(fmtShort(d))} to ${esc(fmtShort(to))}"></i>`;
+      return `<i class="tl-seg st-${col}" style="left:${x(d)};width:calc(${x(to)} - ${x(d)})" title="${COL_LABEL[col]}: ${esc(fmtShort(d))} to ${esc(fmtShort(to))}"></i>`;
     }).join("");
     const end = closed ? `<i class="end st-${t.column}" style="left:${x(t.since)}" title="${COL_LABEL[t.column]} ${esc(fmtShort(t.since))}"></i>` : "";
     const dots = t.events.map((e) => `<i class="dot st-${EV_COLUMN[e.stage] || "note"}" style="left:${x(e.date)}" title="${EV_LABEL[e.stage]}${e.round ? ` round ${e.round}` : ""}, ${esc(fmtShort(e.date))}${e.note ? `: ${esc(e.note)}` : ""}"></i>`).join("");
@@ -604,7 +604,7 @@ function renderTimeline() {
     <div class="tl-row tl-head"><div></div><div class="tl-track">${ticks.map((d) => `<span class="tick" style="left:${x(d)}">${esc(monthLbl(d))}</span>`).join("")}
       <span class="today" style="left:${x(today)}">Today</span></div></div>
     <div class="tl-rows" style="--today:${x(today)}">${rows}</div>
-    <div class="legend">${["applied", "screen", "interviewing", "offer"].map((c) => `<span><i class="seg st-${c}"></i>${COL_LABEL[c]}</span>`).join("")}
+    <div class="legend">${["applied", "screen", "interviewing", "offer"].map((c) => `<span><i class="tl-seg st-${c}"></i>${COL_LABEL[c]}</span>`).join("")}
       ${CLOSED.map((c) => `<span><i class="end st-${c}"></i>${COL_LABEL[c]}</span>`).join("")}<span><i class="sched"></i>Scheduled</span></div>
   </section>`;
   $("#tbody").onclick = (e) => { const b = e.target.closest("[data-hist]"); if (b) openHistory(b.dataset.hist); };

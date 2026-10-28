@@ -1,0 +1,6 @@
+# Phrases that are public on purpose, one per line. check_privacy.py removes them before
+# matching PRIVATE_TERMS, so they may appear in tracked files. Keep each one exact and as
+# long as it can be: the author credit and the GitHub and LinkedIn handle, never a bare
+# surname or an employer.
+Jacob Poteet
+JacobPoteet

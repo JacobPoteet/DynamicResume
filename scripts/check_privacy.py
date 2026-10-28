@@ -12,6 +12,10 @@ checks every tracked file, and the text inside the example PDFs, for:
   - PRIVATE_TERMS: an optional, comma or newline separated list (a GitHub secret, never a
     file) of words that must never appear, such as your name and employers. Matches are
     reported by file only, so the log does not repeat the term.
+
+scripts/public-terms.txt lists exact phrases that are public on purpose, such as the
+author credit on the project page. They are removed before PRIVATE_TERMS are matched, so
+"Jane Doe" there lets the credit through while "Doe" alone, or an employer, still fails.
 """
 import os
 import re
@@ -22,6 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PRIVATE_DIRS = ("data/", "applications/", "Local/", "snapshots/", "build/")
 PRIVATE_FILES = ("CLAUDE.local.md",)
+PUBLIC_TERMS_FILE = ROOT / "scripts" / "public-terms.txt"
 BINARY = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".zip", ".woff", ".woff2", ".ttf", ".otf"}
 
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
@@ -48,7 +53,14 @@ def private_terms():
     return [t.strip().lower() for t in re.split(r"[,\n]", raw) if len(t.strip()) >= 3]
 
 
-def scan_text(name, text, terms):
+def public_terms():
+    if not PUBLIC_TERMS_FILE.exists():
+        return []
+    lines = PUBLIC_TERMS_FILE.read_text(encoding="utf-8").splitlines()
+    return [t.strip().lower() for t in lines if t.strip() and not t.lstrip().startswith("#")]
+
+
+def scan_text(name, text, terms, public=()):
     problems = []
     for m in EMAIL.finditer(text):
         if not ALLOWED_EMAIL.search(m.group()):
@@ -59,14 +71,19 @@ def scan_text(name, text, terms):
     for m in HOME_PATH.finditer(text):
         problems.append(f"{name}: absolute path into a home folder {m.group()!r}")
     # Compared without spaces too, since PDF text extraction can split or join words.
-    low, squashed = text.lower(), re.sub(r"\s+", "", text.lower())
+    low = text.lower()
+    for p in public:
+        low = low.replace(p, " ")
+    squashed = re.sub(r"\s+", "", low)
+    for p in public:
+        squashed = squashed.replace(re.sub(r"\s+", "", p), "")
     if any(t in low or re.sub(r"\s+", "", t) in squashed for t in terms):
         problems.append(f"{name}: contains a PRIVATE_TERMS entry")
     return problems
 
 
 def main():
-    terms = private_terms()
+    terms, public = private_terms(), public_terms()
     me = Path(__file__).resolve().relative_to(ROOT).as_posix()
     problems = []
     for name in tracked_files():
@@ -80,13 +97,13 @@ def main():
         if name == me:
             continue  # its own patterns would match
         if suffix == ".pdf":
-            problems += scan_text(name, pdf_text(ROOT / name), terms)
+            problems += scan_text(name, pdf_text(ROOT / name), terms, public)
         elif suffix not in BINARY:
             try:
                 text = (ROOT / name).read_text(encoding="utf-8")
             except (UnicodeDecodeError, FileNotFoundError):
                 continue
-            problems += scan_text(name, text, terms)
+            problems += scan_text(name, text, terms, public)
     if problems:
         print("Possible personal data in the repo:")
         print("\n".join(f"  {p}" for p in problems))
