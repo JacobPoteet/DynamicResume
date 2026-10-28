@@ -62,12 +62,11 @@ async function showHome(mode = "board") {
   </div>
   <dialog id="new-dlg" class="dlg" aria-labelledby="new-h">${newAppForm()}</dialog>
   <dialog id="ev-dlg" class="dlg"></dialog>
-  <dialog id="hist-dlg" class="drawer" aria-labelledby="hist-h"></dialog>`);
+  <dialog id="hist-dlg" class="hist-dlg" aria-labelledby="hist-h"></dialog>`);
   $("#new-app").onclick = () => $("#new-dlg").showModal();
   $("#na-create").onclick = () => createApp(false);
   if ($("#na-draft")) $("#na-draft").onclick = () => createApp(true);
   $("#na-cancel").onclick = () => $("#new-dlg").close();
-  $("#hist-dlg").addEventListener("click", (e) => { if (e.target.id === "hist-dlg") $("#hist-dlg").close(); });
   $("#hist-dlg").addEventListener("close", () => (T.hist = null));
   await refreshHome();
 }
@@ -392,7 +391,7 @@ async function undo(name, r) {
   }
 }
 
-// ----- history drawer -----
+// ----- history (a modal over the board) -----
 
 function openHistory(name) {
   if (!findApp(name)) return;
@@ -403,15 +402,15 @@ function openHistory(name) {
 }
 
 function eventDetail(e) {
-  const bits = [];
-  if (e.scheduled) bits.push(`<div><span class="faint">Scheduled</span> ${esc(fmtWhen(e.scheduled))}</div>`);
+  const rows = [];
+  if (e.scheduled) rows.push(["Scheduled", esc(fmtWhen(e.scheduled))]);
   const how = [e.format && FORMATS.find(([v]) => v === e.format)?.[1], e.length && `${e.length} min`].filter(Boolean);
-  if (how.length) bits.push(`<div><span class="faint">Format</span> ${esc(how.join(", "))}</div>`);
-  if (e.interviewers?.length) bits.push(`<div><span class="faint">With</span> ${e.interviewers.map((p) => esc(p.name || "") + (p.role ? ` <span class="faint">(${esc(p.role)})</span>` : "")).join(", ")}</div>`);
-  for (const [k, l] of [["prep", "Prep"], ["debrief", "Debrief"], ["note", ""]]) {
-    if (e[k]) bits.push(`<div class="h-text">${l ? `<span class="faint">${l}</span> ` : ""}${esc(e[k])}</div>`);
-  }
-  return bits.join("");
+  if (how.length) rows.push(["Format", esc(how.join(", "))]);
+  if (e.interviewers?.length) rows.push(["With", e.interviewers.map((p) => esc(p.name || "") + (p.role ? ` <span class="faint">(${esc(p.role)})</span>` : "")).join(", ")]);
+  if (e.prep) rows.push(["Prep", esc(e.prep)]);
+  if (e.debrief) rows.push(["Debrief", esc(e.debrief)]);
+  return (rows.length ? `<dl class="h-dl">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : "")
+    + (e.note ? `<p class="h-text">${esc(e.note)}</p>` : "");
 }
 
 function renderHistory() {
@@ -420,44 +419,43 @@ function renderHistory() {
   if (!a) return dlg.close();
   const t = a.track, sub = a.submitted;
   const sent = (k) => `/files/apps/${enc(a.name)}/submitted/${enc(sub[k])}`;
+  const row = (day, cls, title, body, tools = "") => `<li class="h-ev ${cls}"><span class="h-date">${esc(fmtShort(day))}</span>
+    <div class="h-body"><div class="h-line"><b>${title}</b>${tools}</div>${body}</div></li>`;
   const rows = [];
-  if (t.applied) rows.push(`<li class="h-ev st-applied"><div class="h-line"><b>Applied</b><span class="faint">${esc(fmtDay(t.applied))}</span></div>
-    <div class="h-text faint">The day it was marked submitted.</div></li>`);
+  if (t.applied) rows.push(row(t.applied, "st-applied", "Applied", `<p class="h-text faint">The day it was marked submitted.</p>`));
   for (const e of t.events) {
-    rows.push(`<li class="h-ev st-${EV_COLUMN[e.stage] || "note"}">
-      <div class="h-line"><b>${EV_LABEL[e.stage]}${e.round ? ` · round ${e.round}` : ""}</b><span class="faint">${esc(fmtDay(e.date))}</span>
-        <span class="grow"></span>
-        <button class="ghost small" data-edit="${e.i}" aria-label="Edit ${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))}">Edit</button>
-        <button class="ghost small danger" data-del="${e.i}" aria-label="Delete ${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))}">Delete</button></div>
-      ${eventDetail(e)}</li>`);
+    const what = `${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))}`;
+    rows.push(row(e.date, `st-${EV_COLUMN[e.stage] || "note"}`, `${EV_LABEL[e.stage]}${e.round ? ` · round ${e.round}` : ""}`, eventDetail(e),
+      `<button class="ghost small" data-edit="${e.i}" aria-label="Edit ${what}">Edit</button><button class="ghost small danger" data-del="${e.i}" aria-label="Delete ${what}">Delete</button>`));
   }
   const status = t.column === "drafting" ? "Still drafting"
     : CLOSED.includes(t.column) ? `${COL_LABEL[t.column]} ${t.closed_from === "applied" ? "with no reply" : `after ${COL_LABEL[t.closed_from].toLowerCase()}`}${t.days_to_close != null ? `, ${dayCount(t.days_to_close)} after applying` : ""}`
-    : `${COL_LABEL[t.column]} since ${fmtShort(t.since)}${t.next ? `. Next: ${fmtWhen(t.next)}` : ""}`;
+    : `${COL_LABEL[t.column]} since ${fmtShort(t.since)}${t.next ? ` · Next: ${fmtWhen(t.next)}` : ""}`;
+  const links = [[`#/app/${enc(a.name)}/resume`, "Open in editor", false], [`#/app/${enc(a.name)}/listing`, "Listing", false],
+    ...(sub?.resume ? [[sent("resume"), "Resume as sent", true]] : []), ...(sub?.letter ? [[sent("letter"), "Letter as sent", true]] : [])];
   dlg.innerHTML = `<div class="dr-hd">
-      <div class="grow"><h2 id="hist-h">${esc(appLabel(a))}</h2><div class="muted">${esc(a.role)}</div></div>
-      <button class="ghost" id="h-close" aria-label="Close">Close</button></div>
+      <div class="grow"><h2 id="hist-h">${esc(appLabel(a))}</h2><div class="muted">${esc(a.role)}</div>
+        <div class="h-status st-${t.column}">${esc(status)}</div></div>
+      <button class="ghost" id="h-close" aria-label="Close">✕</button></div>
     <div class="dr-bd stack">
-      <div class="row wrap"><span class="pill ${CLOSED.includes(t.column) ? "plain" : ""}">${esc(status)}</span></div>
       ${t.quiet ? `<div class="hint warn">Nothing logged or scheduled for ${dayCount(t.days_quiet)}. <button class="small" data-act="ghost">Mark ghosted</button></div>` : ""}
-      <div class="row wrap">
+      <div class="row wrap h-acts">
         <button class="primary" data-act="move">${t.column === "drafting" ? "Move to Applied" : "Move"}</button>
         ${t.column === "drafting" ? "" : `<button data-act="note">Add note</button>`}
-        <span class="grow"></span>
-        <a class="btn ghost" href="#/app/${enc(a.name)}/resume">Open</a>
-        <a class="btn ghost" href="#/app/${enc(a.name)}/listing">Listing</a>
-        ${sub?.resume ? `<a class="btn ghost" href="${sent("resume")}" target="_blank">Resume sent</a>` : ""}
-        ${sub?.letter ? `<a class="btn ghost" href="${sent("letter")}" target="_blank">Letter sent</a>` : ""}
+        <span class="h-links">${links.map(([href, l, tab]) => `<a href="${href}"${tab ? ` target="_blank"` : ""}>${l}</a>`).join("")}</span>
       </div>
       ${rows.length ? `<ol class="hist">${rows.join("")}</ol>` : `<div class="muted">Nothing logged yet. Move it to Applied when you send it.</div>`}
-    </div>`;
+    </div>
+    <div class="dr-ft"><button class="ghost danger" data-act="delete">Delete application</button></div>`;
   $("#h-close", dlg).onclick = () => dlg.close();
-  dlg.querySelector(".dr-bd").onclick = async (e) => {
+  dlg.onclick = async (e) => {
+    if (e.target === dlg) return dlg.close();  // the backdrop
     const b = e.target.closest("button");
     if (!b) return;
     if (b.dataset.act === "move") return openEvent(a);
     if (b.dataset.act === "note") return openEvent(a, { stage: "note" });
     if (b.dataset.act === "ghost") return openEvent(a, { stage: "ghosted" });
+    if (b.dataset.act === "delete") return deleteApp(a);  // closes this once the board reloads without it
     if (b.dataset.edit) {
       const ev = t.events.find((x) => String(x.i) === b.dataset.edit);
       return openEvent(a, { index: ev.i, event: ev });
