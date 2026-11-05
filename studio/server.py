@@ -134,8 +134,8 @@ def list_apps(s, body, q):
 @route("POST", "/api/apps")
 def create_app(s, body, q):
     with LOCK:
-        name = s.ws.create_app(body.get("studio"), body.get("role"), body.get("listing"))
-    return {"name": name}
+        return s.ws.create_app_from(body.get("studio"), body.get("role"), body.get("listing"),
+                                    body.get("start_from") or None, bool(body.get("copy_letter")))
 
 
 @route("GET", "/api/apps/([^/]+)")

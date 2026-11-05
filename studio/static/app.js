@@ -166,11 +166,14 @@ async function deleteApp(a) {
 
 async function createApp(draft) {
   const body = { studio: $("#na-studio").value, role: $("#na-role").value, listing: $("#na-listing").value };
+  const from = $("#na-from")?.value;
+  if (from) Object.assign(body, { start_from: from, copy_letter: $("#na-letter").checked });
   try {
     if (draft && !body.listing.trim()) throw new Error("Paste the listing first so Claude has something to draft from.");
-    const { name } = await api("POST", "/api/apps", body);
+    const { name, dropped } = await api("POST", "/api/apps", body);
     if (draft) await api("POST", `/api/apps/${enc(name)}/draft`);
     location.hash = `#/app/${enc(name)}/${draft ? "listing" : "resume"}`;
+    if (dropped?.length) toast(`Left out ${plural(dropped.length, "item")} the master no longer has: ${esc(dropped.join(", "))}.`, true, 12000);
   } catch (e) {
     $("#na-err").innerHTML = `<span class="pill bad">${esc(e.message)}</span>`;
   }

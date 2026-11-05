@@ -351,19 +351,104 @@ class Workspace:
         apps.sort(key=lambda a: -a["updated"])
         return apps
 
-    def create_app(self, studio, role, listing):
+    def create_app(self, studio, role, listing, start_from=None, copy_letter=False):
+        """Make an application folder and return its name. A studio and role already used get
+        -2, -3 and so on after the usual name."""
+        return self.create_app_from(studio, role, listing, start_from, copy_letter)["name"]
+
+    def create_app_from(self, studio, role, listing, start_from=None, copy_letter=False):
+        """create_app, plus `dropped`: the ids a copy left out because the master no longer has
+        them. `start_from` is another application whose selection is copied (see `copy_tailor`)."""
         studio, role = (studio or "").strip(), (role or "").strip()
         if not studio or not role:
             raise BuildError("studio and role are both required")
-        name = folder_name(studio, role)
+        dropped, letter = [], None
+        if start_from:
+            starter, dropped, letter = self.copy_tailor(start_from, studio, role, copy_letter)
+        else:
+            starter = self.starter_tailor(studio, role)  # before the folder: with no master, nothing is left behind
+        base = folder_name(studio, role)
+        name, n = base, 1
+        while True:
+            try:
+                (self.apps_dir / name).mkdir(parents=True)
+                break
+            except FileExistsError:
+                n += 1
+                name = f"{base}-{n}"
         app = self.apps_dir / name
-        if app.exists():
-            raise BuildError(f"applications/{name} already exists")
-        starter = self.starter_tailor(studio, role)  # before the folder: with no master, nothing is left behind
-        app.mkdir(parents=True)
         (app / "listing.md").write_text(f"# {studio}: {role}\n\n{(listing or '').strip()}\n", encoding="utf-8")
+        if letter is not None:
+            (app / "cover-letter.md").write_text(letter, encoding="utf-8", newline="\n")
         self.save_tailor(name, starter)
-        return name
+        return {"name": name, "dropped": dropped}
+
+    COPIED = ("template", "paper", "headline", "games", "positions", "skills_first", "skill_groups", "projects",
+              "overrides", "short")
+
+    def copy_tailor(self, source, studio, role, copy_letter=False):
+        """(tailor, dropped, letter) for a new application started from `source`. Only the
+        selection and wording are copied: never submitted/, tracking, listing.yaml, job details
+        or PDFs. A submitted source is read from its frozen submitted/ files. Anything the
+        current master no longer has is left out and named in `dropped`, so the copy builds."""
+        app = self.app_dir(source)
+        sent = build.submission(app)
+
+        def frozen(filename):
+            p = app / build.SUBMITTED / filename
+            return p if sent and p.exists() else app / filename
+
+        old = self._read_yaml(frozen("tailor.yaml")) or {}
+        master = self.master()
+        places = _places(master)
+        variant = {(o["id"], b["id"]): b.get("variant_of") for o in (master.get("positions") or []) + (master.get("projects") or [])
+                   for b in o.get("bullets") or []}
+        owners = {"positions": {p["id"] for p in master.get("positions") or []},
+                  "projects": {p["id"] for p in master.get("projects") or []}}
+        dropped = []
+
+        def keep_bullets(owner, ids):
+            out = []
+            for i in ids or []:
+                if (owner, i) not in places or variant[(owner, i)] in (ids or []):
+                    dropped.append(i)  # gone from the master, or now a version of another bullet also picked
+                else:
+                    out.append(i)
+            return out
+
+        def keep_owners(kind, value):
+            if isinstance(value, list):  # projects as a plain list show all of their bullets
+                value = {k: None for k in value}
+            out = {}
+            for k, v in (value or {}).items():
+                if k not in owners[kind]:
+                    dropped.append(k)
+                elif (v or {}).get("bullets") is None:
+                    out[k] = v
+                else:
+                    out[k] = {"bullets": keep_bullets(k, v["bullets"])}
+            return out
+
+        new = {"target": {"studio": studio, "role": role}}
+        for key in self.COPIED:
+            v = old.get(key)
+            if v is None:
+                continue
+            if key in owners:
+                v = keep_owners(key, v)
+            elif key == "games":
+                known = {g["id"] for g in master.get("games") or []}
+                dropped.extend(g for g in v if g not in known)
+                v = [g for g in v if g in known]
+            elif key in ("overrides", "short"):
+                shown = {i for _, i in _selected(new)} | {i for o, i in places if isinstance(new.get("projects"), dict)
+                                                          and o in new["projects"] and new["projects"][o] is None}
+                gone = [i for i in v if i not in shown]
+                dropped.extend(gone)
+                v = {i: t for i, t in v.items() if i in shown} if isinstance(v, dict) else [i for i in v if i in shown]
+            new[key] = v
+        letter = self._read_text(frozen("cover-letter.md")) if copy_letter else None
+        return new, list(dict.fromkeys(dropped)), letter
 
     def starter_tailor(self, studio, role):
         """Every position with its priority 1 bullets: a starting point to edit from.
