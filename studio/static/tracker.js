@@ -361,6 +361,7 @@ function openEvent(a, opts = {}) {
   const t = a.track;
   const editing = opts.index != null;
   const drafting = t.column === "drafting";
+  if (drafting && !editing) return openSend(a.name);  // the only move from Drafting is sending it
   const nextStage = { drafting: "applied", applied: "screen", screen: "interview", interviewing: "interview" }[t.column] || "note";
   const ev = { date: todayIso(), ...(opts.event || {}), stage: opts.event?.stage || opts.stage || nextStage };
   if (ev.stage === "interview" && !editing) ev.round = (t.round || 0) + 1;
@@ -384,7 +385,6 @@ function openEvent(a, opts = {}) {
             <button type="button" class="small" data-day="-1">Yesterday</button>
             <input type="date" id="ev-date" value="${esc(ev.date)}" aria-label="Date" required>
           </div></div>
-        ${s === "applied" && drafting ? `<div class="hint">This marks it submitted: the PDFs, tailor, letter and listing are frozen as they are now.${a.pdfs?.resume?.stale ? " <b>The PDFs do not match your latest edits.</b>" : ""}</div>` : ""}
         ${s === "ghosted" ? `<div class="hint">Ghosted counts as a rejection but is left out of time-to-rejection, since it has no real end date.</div>` : ""}
         ${s === "screen" || s === "interview" ? `<div class="field"><span id="ev-sched">Scheduled for (optional)</span>
           <div class="row" role="group" aria-labelledby="ev-sched">
@@ -481,7 +481,7 @@ function openEvent(a, opts = {}) {
       if (editing) return toast("Saved");
       const what = body.stage === "note" ? `Added a note to ${esc(appLabel(a))}`
         : body.stage === "interview" && t.column === "interviewing" ? `Added round ${esc(body.round)} for ${esc(appLabel(a))}`
-        : `Moved ${esc(appLabel(a))} to ${COL_LABEL[EV_COLUMN[body.stage]]}${r.submitted ? ` and marked it submitted on ${esc(fmtShort(r.submitted.date))}` : ""}`;
+        : `Moved ${esc(appLabel(a))} to ${COL_LABEL[EV_COLUMN[body.stage]]}`;
       toast(`${what}. <a href="#" id="undo">Undo</a>`, false, 8000);
       $("#undo").onclick = (e) => { e.preventDefault(); undo(a.name, r); };
     } catch (e) {
@@ -505,11 +505,225 @@ async function undo(name, r) {
   try {
     if (r.index != null) await api("DELETE", `/api/apps/${enc(name)}/events/${r.index}`);
     if (r.submitted) await api("POST", `/api/apps/${enc(name)}/unsubmit`);
-    await refreshHome();
+    await reloadAfterSend(name);
     toast(r.submitted ? "Undone. It is a draft again." : "Undone");
   } catch (e) {
     toast(esc(e.message), true);
   }
+}
+
+// ----- send (opened from the editor, or by moving a draft to Applied) -----
+
+// The dialog lives in index.html, so it is there on the board and in the editor. `info` is
+// /api/apps/<name>/send-text; `busy` holds Cancel and Escape while a build or the mark runs.
+const SEND = { info: null, busy: false, warnings: [] };
+
+// Sending or undoing it from the editor changes whether the editor opens read-only.
+async function reloadAfterSend(name) {
+  if (S.app?.name !== name) return refreshHome();
+  await loadApp(name);
+  await showEditor(name, S.tab);
+}
+
+async function openSend(name) {
+  if (S.conflict) return toast(CHOOSE_FIRST, true);
+  await Promise.all([saveNow(), saveLetter(), saveListing()]);
+  if (S.conflict) return toast(CHOOSE_FIRST, true);  // one of those saves met an outside edit
+  let info;
+  try {
+    info = await api("GET", `/api/apps/${enc(name)}/send-text`);
+  } catch (e) {
+    return toast(esc(e.message), true, 8000);
+  }
+  if (info.submitted) {  // sent from the CLI since this page last loaded
+    toast(`${esc(name)} is already marked sent, on ${esc(fmtDay(info.submitted.date))}.`, true, 6000);
+    return refreshHome();
+  }
+  const dlg = $("#send-dlg");
+  if (dlg.open) return;  // a second click on the way here
+  Object.assign(SEND, { info, busy: false, warnings: [] });
+  dlg.innerHTML = `<form id="sd-form" novalidate>
+    <div class="dlg-hd"><h2 id="send-h">Send</h2><span class="muted">${esc(info.studio || name)} · ${esc(info.role)}</span></div>
+    <div class="stack">
+      <section class="send-step" aria-labelledby="sd-h-pdfs">
+        <div class="row"><h3 id="sd-h-pdfs">PDFs</h3><span class="grow"></span><span class="faint" id="sd-built" role="status"></span><button type="button" id="sd-build"></button></div>
+        <div id="sd-pdfs" class="stack"></div>
+        <div id="sd-build-err" class="ev-err" role="alert"></div>
+      </section>
+      <section class="send-step" aria-labelledby="sd-h-copy">
+        <h3 id="sd-h-copy">Copy for application forms</h3>
+        <div id="sd-copy"></div>
+        <label class="field" id="sd-manual-box" hidden><span id="sd-manual-for"></span>
+          <textarea id="sd-manual" rows="6" readonly></textarea></label>
+      </section>
+      ${safeUrl(info.job?.url) ? `<a href="${esc(safeUrl(info.job.url))}" target="_blank" rel="noopener noreferrer">Open posting ↗</a>` : ""}
+      <section class="send-step stack" aria-labelledby="sd-h-mark">
+        <h3 id="sd-h-mark">Mark it sent</h3>
+        <div class="field"><span id="sd-when">When did you send it?</span>
+          <div class="row" role="group" aria-labelledby="sd-when">
+            <button type="button" class="small" data-day="0">Today</button>
+            <button type="button" class="small" data-day="-1">Yesterday</button>
+            <input type="date" id="sd-date" value="${todayIso()}" aria-label="Date" required>
+          </div></div>
+        <label class="field">Note (optional)<textarea id="sd-note" rows="2" placeholder="Anything worth remembering"></textarea></label>
+        <div class="muted" style="font-size:12px">Marking it sent freezes the PDFs, tailor, letter, listing and master as they are now. Nothing is sent from here.</div>
+        <div id="sd-err" class="ev-err" role="alert"></div>
+        <div class="row dlg-ft"><span class="grow"></span>
+          <button type="button" id="sd-cancel">Cancel</button>
+          <button class="primary" type="submit" id="sd-mark">Mark sent</button>
+        </div>
+      </section>
+    </div></form>`;
+  $("#sd-form", dlg).onsubmit = (e) => { e.preventDefault(); markSent(); };
+  $("#sd-build", dlg).onclick = rebuildSend;
+  $("#sd-cancel", dlg).onclick = () => dlg.close();
+  $("#sd-copy", dlg).onclick = (e) => { const b = e.target.closest("[data-copy]"); if (b) copySend(b); };
+  $("#sd-date", dlg).oninput = markSendDay;
+  dlg.querySelectorAll("[data-day]").forEach((b) => (b.onclick = () => { $("#sd-date", dlg).value = shiftDay(todayIso(), Number(b.dataset.day)); markSendDay(); }));
+  dlg.oncancel = (e) => { if (SEND.busy) e.preventDefault(); };
+  markSendDay();
+  renderSend();
+  dlg.showModal();
+  ($("#sd-build", dlg).hidden ? $("[data-copy]", dlg) : $("#sd-build", dlg)).focus();
+}
+
+function markSendDay() {
+  const dlg = $("#send-dlg");
+  const v = $("#sd-date", dlg).value;
+  dlg.querySelectorAll("[data-day]").forEach((b) => b.setAttribute("aria-pressed", String(v === shiftDay(todayIso(), Number(b.dataset.day)))));
+}
+
+// A PDF's state, for the row and the warnings: which pill, and whether a build would change it.
+function sendPdf(kind) {
+  const { pdfs, letter } = SEND.info;
+  const x = pdfs[kind];
+  if (x.exists && x.stale) return { cls: "warn", label: "Out of date", build: true };
+  if (x.exists) return { cls: "good", label: "Current", build: false };
+  if (kind === "letter" && !letter) return { cls: "plain", label: "No letter written", build: false };
+  return { cls: "bad", label: "Missing", build: true };
+}
+
+// Draws the parts a rebuild can change. The date and note stay as typed.
+function renderSend() {
+  const { info, warnings, busy } = SEND;
+  const dlg = $("#send-dlg");
+  const row = (kind, label) => {
+    const x = info.pdfs[kind], st = sendPdf(kind), fit = info.fit[kind];
+    return `<div class="send-row"><span class="send-name">${label}</span><span class="pill ${st.cls}">${st.label}</span>
+      ${x.exists && fit ? `<span class="faint">${esc(describeFill(fit))}</span>` : ""}<span class="grow"></span>
+      ${x.exists ? `<a href="/files/apps/${enc(info.name)}/${enc(x.file)}?v=${Date.now()}" target="_blank" rel="noopener">Open ${label.toLowerCase()} ↗</a>` : ""}</div>`;
+  };
+  const resume = sendPdf("resume"), letter = sendPdf("letter");
+  const over = info.pdfs.resume.exists && info.fit.resume?.pages > 1 ? info.fit.resume : null;
+  const notes = [
+    !info.pdfs.resume.exists && `Build the resume PDF first. Mark sent needs one.`,
+    over && `The resume runs to ${over.pages} pages${over.spill_lines ? `. Cut about ${plural(over.spill_lines, "line")} to fit one` : ""}.`,
+    (resume.label === "Out of date" || letter.label === "Out of date") && `The PDFs do not match your latest edits. Rebuild them, or mark it sent anyway if these are the files you sent.`,
+    letter.label === "Missing" && `You wrote a letter, but it has no PDF yet. Marking it sent now leaves the letter out of the frozen files.`,
+    info.error && `This application does not build: ${esc(info.error)}`,
+    ...warnings.filter((w) => !/^RESUME IS/.test(w)).map(esc),  // the page count is said above
+  ].filter(Boolean);
+  $("#sd-pdfs", dlg).innerHTML = `${row("resume", "Resume")}${row("letter", "Letter")}
+    ${notes.map((n) => `<div class="hint warn">${n}</div>`).join("")}`;
+  const build = $("#sd-build", dlg);
+  build.hidden = !resume.build && !letter.build && !busy;
+  build.disabled = busy;
+  build.className = info.pdfs.resume.exists ? "" : "primary";
+  if (busy) build.innerHTML = `<span class="spinner"></span>Building…`;
+  else build.textContent = info.pdfs.resume.exists ? "Rebuild" : "Build PDFs";
+  $("#sd-mark", dlg).disabled = busy || !info.pdfs.resume.exists;
+  $("#sd-cancel", dlg).disabled = busy;
+  const copy = (key, label, sub) => `<div class="send-row"><span class="send-name">${esc(label)}${sub ? ` <span class="faint">${esc(sub)}</span>` : ""}</span><span class="grow"></span>
+    <span class="send-copied" role="status"></span>
+    <button type="button" class="small" data-copy="${esc(key)}" aria-label="Copy ${esc(label)}${sub ? `, ${esc(sub)}` : ""}">Copy</button></div>`;
+  $("#sd-copy", dlg).innerHTML = [
+    info.letter ? copy("letter", "Cover letter") : "",
+    ...info.roles.map((r, i) => copy(`role-${i}`, `${r.title}, ${r.company}`, [r.game, r.dates].filter(Boolean).join(", "))),
+    !info.roles.length && !info.error ? `<div class="muted" style="font-size:13px">No bullets selected yet.</div>` : "",
+    copy("contact", "Contact details"),
+  ].join("");
+}
+
+async function rebuildSend() {
+  const name = SEND.info.name, dlg = $("#send-dlg");
+  $("#sd-build-err", dlg).textContent = $("#sd-built", dlg).textContent = "";
+  SEND.busy = true;
+  renderSend();
+  try {
+    const r = await api("POST", `/api/apps/${enc(name)}/finalize`);
+    const info = await api("GET", `/api/apps/${enc(name)}/send-text`);
+    if (S.app?.name === name) {
+      S.app.pdfs = r.pdfs;
+      renderPdfState();
+    } else {
+      refreshHome().catch(() => {});  // the board's PDF pill, behind this dialog
+    }
+    if (!dlg.open) return;
+    Object.assign(SEND, { info, warnings: r.warnings, busy: false });
+    renderSend();
+    $("#sd-built", dlg).textContent = "PDFs built";
+    ($("#sd-build", dlg).hidden ? $("[data-copy]", dlg) : $("#sd-build", dlg)).focus();
+  } catch (e) {
+    SEND.busy = false;
+    renderSend();
+    $("#sd-build-err", dlg).textContent = e.message;
+    $("#sd-build", dlg).focus();
+  }
+}
+
+function sendTextFor(key) {
+  const { info } = SEND;
+  if (key === "letter") return info.letter;
+  if (key === "contact") return info.contact;
+  return info.roles[Number(key.slice("role-".length))].text;
+}
+
+async function copySend(btn) {
+  const dlg = $("#send-dlg"), text = sendTextFor(btn.dataset.copy);
+  const box = $("#sd-manual-box", dlg), said = btn.previousElementSibling;
+  try {
+    await navigator.clipboard.writeText(text);
+    box.hidden = true;
+    said.textContent = "Copied";
+    setTimeout(() => { if (said.textContent === "Copied") said.textContent = ""; }, 2000);
+  } catch {
+    // No clipboard access: leave the text selected so Ctrl+C takes it.
+    $("#sd-manual-for", dlg).textContent = `This browser blocked copying. ${btn.getAttribute("aria-label")} from here with Ctrl+C.`;
+    box.hidden = false;
+    const area = $("#sd-manual", dlg);
+    area.value = text;
+    area.focus();
+    area.select();
+  }
+}
+
+async function markSent() {
+  const dlg = $("#send-dlg"), err = $("#sd-err", dlg);
+  const { name, studio } = SEND.info;
+  const date = $("#sd-date", dlg).value.trim(), note = $("#sd-note", dlg).value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { err.textContent = "Pick the day you sent it."; return $("#sd-date", dlg).focus(); }
+  err.textContent = "";
+  SEND.busy = true;
+  renderSend();
+  let r;
+  try {
+    r = await api("POST", `/api/apps/${enc(name)}/events`, { event: { stage: "applied", date, note } });
+  } catch (e) {
+    SEND.busy = false;
+    renderSend();
+    err.textContent = e.message;
+    return $("#sd-mark", dlg).focus();
+  }
+  SEND.busy = false;
+  dlg.close();
+  $("#hist-dlg")?.close();  // a modal over the page would keep the Undo in the toast out of reach
+  try {
+    await reloadAfterSend(name);
+  } catch (e) {
+    toast(esc(e.message), true, 8000);
+  }
+  toast(`Marked ${esc(studio || name)} sent on ${esc(fmtShort(r.submitted.date))}. The PDFs are frozen. <a href="#" id="undo">Undo</a>`, false, 8000);
+  $("#undo").onclick = (e) => { e.preventDefault(); undo(name, r); };
 }
 
 // ----- menus -----

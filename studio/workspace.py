@@ -20,7 +20,7 @@ from ruamel.yaml.error import YAMLError
 
 import build
 from build import ROOT, BuildError
-from studio import job, tracking
+from studio import job, send, tracking
 
 HISTORY_KEEP = 50
 APP_NAME = re.compile(r"^[^\W_][\w.-]*$")  # \w: letters and digits in any script, plus _
@@ -490,6 +490,21 @@ class Workspace:
             "studio_notes": self.studio_notes((tailor.get("target") or {}).get("studio")),
             "track": self.track(app), "job": self.job(app),  # the live job.yaml, even once submitted
         }
+
+    def send_text(self, name):
+        """What the Send dialog shows for a draft: its plain text for forms, PDF state and fill,
+        and the job details. A submitted application only reports that it was sent."""
+        app = self.app_dir(name)
+        sent = build.submission(app)
+        if sent:
+            return {"name": name, "submitted": sent}
+        master = self.master()
+        tailor = self._read_yaml(app / "tailor.yaml") or {}
+        target = tailor.get("target") or {}
+        return {**send.plain_text(master, tailor, self._read_text(app / "cover-letter.md") or ""),
+                "name": name, "submitted": None, "studio": target.get("studio", ""), "role": target.get("role", ""),
+                "pdfs": self.pdf_status(app, tailor, master), "job": self.job(app),
+                "fit": {k: build.last_fit(app, self.example, k) for k in ("resume", "letter")}}
 
     def require_editable(self, name):
         sub = build.submission(self.app_dir(name))

@@ -250,7 +250,7 @@ async function showEditor(name, tab) {
         <select id="paper" aria-label="Paper size">${S.init.papers.map((x) => `<option value="${esc(x)}" ${x === paper ? "selected" : ""}>${x === "letter" ? "US Letter" : esc(x.toUpperCase())}</option>`).join("")}</select>
       </label>
       <span id="pdf-state"></span>
-      <button id="submit" title="Freeze the PDFs as you sent them">Mark submitted</button>
+      <button id="submit" title="Rebuild the PDFs, copy text for forms, open the posting and mark it sent">Send</button>
       <button class="primary" id="finalize">Build PDFs</button>`;
   view(`<div class="editor">
     <div class="ebar">
@@ -274,7 +274,7 @@ async function showEditor(name, tab) {
   // Paper also changes the letter, whose preview a resume save does not refresh.
   $("#paper").onchange = (e) => { t.paper = e.target.value; delete S.previews.letter; queueSave(0); };
   $("#finalize").onclick = finalize;
-  $("#submit").onclick = markSubmitted;
+  $("#submit").onclick = () => openSend(name);
   if (S.previews[kind]) renderPreview(kind);
   else {
     $("#right").innerHTML = `<div class="pv-head">
@@ -316,27 +316,6 @@ function showSent(kind) {
     <details class="sent-job"><summary>Job details</summary>${jobCard()}</details>
     <iframe class="sent-pdf" src="${sentUrl(file)}" title="${kind === "letter" ? "Cover letter" : "Resume"} as sent"></iframe>`;
   $("#unsubmit").onclick = unsubmit;
-}
-
-async function markSubmitted() {
-  if (S.conflict) return toast(CHOOSE_FIRST, true);
-  await Promise.all([saveNow(), saveLetter(), saveListing()]);
-  const p = S.app.pdfs;
-  if (!p.resume.exists) return toast("Build the PDFs you are sending first, then mark the application submitted.", true);
-  if ((p.resume.stale || (p.letter.exists && p.letter.stale)) &&
-      !confirm("The PDFs do not match your latest edits. They are frozen as they are now, which is usually what you sent. Continue?")) return;
-  const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const date = prompt("The day you sent it (YYYY-MM-DD). The PDFs, tailor, letter, listing and master are copied to submitted/.", today);
-  if (date == null) return;
-  try {
-    const r = await api("POST", `/api/apps/${enc(S.app.name)}/submit`, { date });
-    toast(`Marked submitted on ${esc(fmtDay(r.date))}. Frozen copies are in ${esc(r.path)}.`, false, 7000);
-    await loadApp(S.app.name);
-    showEditor(S.app.name, S.tab);
-  } catch (e) {
-    toast(esc(e.message), true, 8000);
-  }
 }
 
 async function unsubmit() {
@@ -1511,7 +1490,7 @@ async function checkDraft(name) {
 }
 
 ON_OUTSIDE_EDIT.blocked = () =>
-  listingDirty.size > 0 || letterPending || S.draft[S.app?.name]?.state === "running" ||
+  $("#send-dlg").open || listingDirty.size > 0 || letterPending || S.draft[S.app?.name]?.state === "running" ||
   !!document.activeElement?.closest?.("#left") && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.type !== "checkbox";
 
 // ---------- master ----------

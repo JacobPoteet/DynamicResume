@@ -229,6 +229,15 @@ button[aria-pressed=true] { background: var(--accent-soft); border-color: var(--
 .ev-err { color: var(--bad); font-size: 13px; }
 .ev-err:empty { display: none; }
 .row.wrap { flex-wrap: wrap; }
+.send-dlg { width: min(620px, calc(100vw - 32px)); }
+.send-dlg [hidden] { display: none; }
+.send-dlg h3 { font-size: 13px; margin: 0; }
+.send-step { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.send-step:first-child { border-top: 0; padding-top: 0; }
+.send-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: 13px; min-height: 26px; }
+.send-name { font-weight: 500; }
+.send-name .faint { font-weight: 400; font-size: 12px; }
+.send-copied { color: var(--good); font-size: 12px; }
 
 .hist-dlg { width: min(600px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border-radius: 10px; }
 .hist-dlg[open] { display: flex; flex-direction: column; }

@@ -11,7 +11,7 @@ import yaml
 
 import build
 from conftest import EXAMPLE_APP, REPO
-from studio import server
+from studio import send, server
 
 pytestmark = pytest.mark.typst
 APP = REPO / "examples" / "applications" / EXAMPLE_APP
@@ -61,6 +61,19 @@ def render_resume(typst, name, master, tailor):
     out = work / "resume.pdf"
     f = build.fill(build.render(typst, "resume-inline.typ", build.resume_data(master, tailor), out, work, "resume"))
     return pdf_text(out), f
+
+
+def test_the_text_copied_for_forms_matches_the_pdfs(built, resume):
+    master = build.load_yaml(REPO / "examples" / "data" / "master.yaml")
+    tailor = build.load_yaml(APP / "tailor.yaml")
+    out = send.plain_text(master, tailor, (APP / "cover-letter.md").read_text(encoding="utf-8"))
+    assert out["error"] is None and out["roles"]
+    printed = words(resume)
+    for role in out["roles"]:
+        for line in role["text"].split("\n"):
+            assert words(line.removeprefix("- ")) in printed
+    letter = words(pdf_text(built["letter"]))
+    assert words(out["letter"]) in letter
 
 
 def test_the_demo_fits_one_page_without_wraps(built):
