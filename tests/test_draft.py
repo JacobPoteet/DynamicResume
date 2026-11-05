@@ -3,6 +3,7 @@ import threading
 
 import pytest
 
+import build
 import studio.draft
 from build import ROOT, BuildError
 from conftest import EXAMPLE_APP
@@ -100,3 +101,12 @@ def test_a_redraft_keeps_the_paper(ws, current, reply, expected):
     draft = {"target": {"studio": "S", "role": "R"}, "positions": {}, **({"paper": reply} if reply else {})}
     Drafts(ws, threading.Lock(), ROOT / "build" / "pytest").apply(EXAMPLE_APP, {"tailor": draft})
     assert ws.load_app(EXAMPLE_APP)["tailor"].get("paper") == expected
+
+
+def test_a_redraft_shows_what_it_changed(ws):
+    tailor = build.load_yaml(ws.apps_dir / EXAMPLE_APP / "tailor.yaml")
+    Drafts(ws, threading.Lock(), ROOT / "build" / "pytest").apply(
+        EXAMPLE_APP, {"tailor": {**tailor, "headline": "A new headline"}, "cover_letter": "A new letter."})
+    c = ws.changes(EXAMPLE_APP)
+    assert c["fields"][0] == {"label": "Headline", "before": tailor["headline"], "after": "A new headline"}
+    assert {"change": "added", "text": "A new letter."} in c["letter"]

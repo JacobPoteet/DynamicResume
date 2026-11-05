@@ -12,6 +12,7 @@
   python build.py track <app> [stage]  log a reply, screen, interview, offer or rejection, or show the history
   python build.py new "<studio>" "<role>" [--listing file|-]   start an application folder
   python build.py draft <app>          draft it with headless Claude Code, as the app does
+  python build.py fit <app> [--report]   fit the resume to one page, or suggest bullets when it has room
   add --example to use examples/ (the public demo data) instead of your own
 
 In a linked git worktree, your data (data/, applications/, Local/, snapshots/) is read from
@@ -640,6 +641,42 @@ def built_hashes(app, example):
         return None
 
 
+def versions_path(app, example):
+    return fit_path(app, example).with_name(f"{app.name}.versions.json")
+
+
+def load_versions(app, example):
+    try:
+        return json.loads(versions_path(app, example).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+
+
+def remember_version(app, example, tailor, letter_text):
+    """Keep this version of the tailor and letter, plus the different one before it, so the app
+    can show what changed, even when the new version was written outside it and then built."""
+    versions = load_versions(app, example)
+    tailor = json.loads(json.dumps(tailor, default=str))
+    if versions and versions[-1]["tailor"] == tailor and versions[-1]["letter"] == letter_text:
+        return
+    versions = [*versions[-1:], {"when": time.strftime("%Y-%m-%d %H:%M"), "tailor": tailor, "letter": letter_text}]
+    p = versions_path(app, example)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(versions, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+
+
+def compare_version(app, example, tailor, letter_text):
+    """The kept version to compare these files with: the latest if they differ from it, else the
+    one before it. None when no earlier version exists."""
+    versions = load_versions(app, example)
+    if not versions:
+        return None
+    latest = versions[-1]
+    if latest["tailor"] != json.loads(json.dumps(tailor, default=str)) or latest["letter"] != letter_text:
+        return latest
+    return versions[-2] if len(versions) > 1 else None
+
+
 def build_app(typst, app, example, template=None, out_dir=None):
     """Build one application's PDFs into its folder. A --template trial build goes to
     build/<app>/, and `out_dir` (the impact check) takes both PDFs instead, so the
@@ -682,6 +719,7 @@ def build_app(typst, app, example, template=None, out_dir=None):
         result.update(letter=out, letter_fill=lf)
     if not out_dir:
         record_build(app, example, master, tailor, letter_text, rf, result["letter_fill"])
+        remember_version(app, example, tailor, letter_text)
     return result
 
 
@@ -744,6 +782,31 @@ def print_check(rows):
     return not any(r["over"] or r["error"] for r in rows)
 
 
+def print_fit(report):
+    """The same report the app shows after Fit to page, for a chat or a terminal."""
+    if not report["measured"]:
+        print("Fit: could not measure the page, so nothing was changed.")
+        return
+    verb = "" if report.get("applied") or not (report["cut"] or report["shortened"]) else "would be "
+    print(f"Fit: {fit_label(report['before'])} -> {fit_label(report['after'])}")
+    for b in report["shortened"]:
+        print(f"  {verb}shortened: {b['id']} ({b['where']})")
+    for b in report["cut"]:
+        print(f"  {verb}cut: {b['id']} ({b['where']}). {b['reason']}")
+        print(f"      {b['text']}")
+    for r in report["uncovered"]:
+        print(f"  no longer covered: {r['text']}{' (required)' if r['must'] else ''}")
+    if report["cut"]:
+        print("  check the cover letter does not lean on a cut bullet")
+    if report["over"]:
+        print("  still over one page: every position is down to its last bullet")
+    for b in report["suggest"]:
+        print(f"  could add: {b['id']} ({b['where']}), page would be {round(b['fill'] * 100)}% full. {b['reason']}")
+        print(f"      {b['text']}")
+    if not (report["cut"] or report["shortened"] or report["suggest"]):
+        print("  nothing to change")
+
+
 def run_draft(example, name):
     """Run the app's headless Claude draft from the command line, printing its progress."""
     from studio.draft import Drafts
@@ -767,6 +830,8 @@ def run_draft(example, name):
         print(f"  gap: {g['text'] if isinstance(g, dict) else g}")
     for w in res["warnings"]:
         print(f"WARN: {w}")
+    if res.get("fit"):
+        print_fit(res["fit"])
 
 
 def print_track(example, args):
@@ -848,6 +913,9 @@ def main():
     d = sub.add_parser("draft", parents=[common], help="draft an application with headless Claude Code")
     d.add_argument("target")
     d.add_argument("--no-build", action="store_true", help="do not build the PDFs after drafting")
+    f = sub.add_parser("fit", parents=[common], help="fit a resume to one page, or suggest bullets when it has room")
+    f.add_argument("target")
+    f.add_argument("--report", action="store_true", help="only say what it would change; write nothing")
     args = ap.parse_args()
     example = getattr(args, "example", False)
     if HOME != ROOT and not example:
@@ -903,6 +971,11 @@ def main():
                 build_master(typst, example)
             else:
                 print_build(find_app(args.target, example), example, args.template)
+        elif args.cmd == "fit":
+            from studio.fit import fit_app
+            from studio.workspace import Workspace
+            app = find_app(args.target, example)
+            print_fit(fit_app(Workspace(example), typst, app.name, ROOT / "build" / app.name / "fit", apply=not args.report)[1])
         elif args.cmd == "check":
             if not print_check(check_apps(typst, example)):
                 sys.exit(1)

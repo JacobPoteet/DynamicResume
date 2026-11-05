@@ -15,6 +15,7 @@ import time
 
 import build
 from build import BuildError
+from studio.fit import fit_app
 
 TIMEOUT_S = 600
 READ_ONLY = ["Read", "Glob", "Grep"]
@@ -162,6 +163,8 @@ class Drafts:
             out = parse_json(result.get("result", ""))
             with self.lock:
                 job["result"] = self.apply(name, out)
+                log.append("Measuring the page")
+                self.fit_draft(name, job["result"])
             job["state"] = "done"
             log.append("Draft written")
         except BuildError as e:
@@ -171,6 +174,16 @@ class Drafts:
         finally:
             job["finished"] = time.time()
             job.pop("proc", None)
+
+    def fit_draft(self, name, result):
+        """Claude cannot measure the page, so fit the written draft here. A draft that cannot be
+        measured stays as written, with a warning."""
+        try:
+            result["fit"] = fit_app(self.ws, build.find_typst(), name, self.build_dir / name / "fit")[1]
+            if not result["fit"]["measured"]:
+                result["warnings"].append("could not measure the page, so the draft was not fitted to it")
+        except BuildError as e:
+            result["warnings"].append(f"the draft was not fitted to the page: {e}")
 
     def apply(self, name, out):
         """Check the draft against the master, drop anything unknown, and write the files."""
@@ -198,6 +211,7 @@ class Drafts:
         app = self.ws.app_dir(name)
         if (app / "listing.yaml").exists():
             self.ws.create_snapshot(f"before-redraft-{name}")
+            build.remember_version(app, self.ws.example, current, self.ws._read_text(app / "cover-letter.md") or "")
         self.ws.save_tailor(name, tailor)
         self.ws.save_listing_spec(name, listing)
         letter = str(out.get("cover_letter") or "").strip()
