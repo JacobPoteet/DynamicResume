@@ -29,6 +29,8 @@ Needs `typst` (`winget install Typst.Typst`) and `pip install -r requirements.tx
 
 **After editing the master,** run `python build.py check`. It rebuilds every unsubmitted application into `build/check/`, never the application folders, and compares each resume with its last real build. It exits nonzero when one goes past one page. The Master page runs the same check after every save. Then fix what it reports (a `short` text, a different bullet) before building.
 
+With no `data/master.yaml`, the app opens on a first-run screen that offers to copy the demo master there, and `build`, `check` and `new` print a clear `ERROR:` line.
+
 The app has four areas: Applications (a board of every application by stage, with List, Timeline and Stats views and New application; see Application tracking below; deleting from List takes a snapshot first), the editor (Resume, Cover letter and Listing tabs beside a live page preview, with Build PDFs and Mark submitted), Master (edit bullets, short texts, tags, priorities, position details and skills, or the raw YAML; Save validates before writing, refuses to delete a bullet an application uses, then shows which applications the change affects; a Gaps view ranks what listings asked for that the master lacks), and Snapshots. The app and the CLI read and write the same files, so either can be used at any time. The app saves `tailor.yaml` on every change and rebuilds the preview; it notices edits made to the files outside the app (by Claude or a text editor) within a couple of seconds and reloads. It writes YAML with ruamel round-trip, so comments and layout in `master.yaml` and `tailor.yaml` survive, and every master save keeps the previous file in `snapshots/master-history/`.
 
 ## Submitted applications

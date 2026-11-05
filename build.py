@@ -111,6 +111,14 @@ def load_yaml(path):
         return yaml.safe_load(f) or {}
 
 
+def load_master(path):
+    """The master file, or a clear error when there is none yet (a first run)."""
+    if not Path(path).exists():
+        raise BuildError(f"no master file at {rel(path)}. Copy examples/data/master.yaml there and make it yours, "
+                         "or run 'python build.py serve' and choose Start from the demo master.")
+    return load_yaml(path)
+
+
 def fmt_date(d):
     s = str(d)
     if s.lower() == "present":
@@ -500,7 +508,7 @@ def workspace(example):
 
 def build_master(typst, example):
     master_path, _ = workspace(example)
-    master = load_yaml(master_path)
+    master = load_master(master_path)
     data = resolve(master, {}, True)
     for s in walk_strings(data):
         lint(s, "master")
@@ -565,7 +573,7 @@ def build_app(typst, app, example, template=None, out_dir=None):
         raise BuildError(f"{app.name} was submitted on {sub.get('date')}, so its PDFs are frozen. "
                          f"Run 'python build.py unsubmit {app.name}' to edit and rebuild it.")
     master_path, _ = workspace(example)
-    master = load_yaml(master_path)
+    master = load_master(master_path)
     tailor = load_yaml(app / "tailor.yaml")
     work = out_dir or ROOT / "build" / app.name
     dest = out_dir or app
@@ -619,6 +627,7 @@ def print_build(app, example, template=None):
 def check_apps(typst, example):
     """Rebuild every unsubmitted application into build/check/ (never its own folder) and
     compare each resume with its last real build. One row per application."""
+    load_master(workspace(example)[0])  # no master at all is one error, not one row per application
     rows = []
     for app in app_folders(example):
         if submission(app):

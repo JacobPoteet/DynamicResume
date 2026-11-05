@@ -72,8 +72,8 @@ Drafting needs [Claude Code](https://claude.com/claude-code) installed and signe
 
 ## Using it for real
 
-1. Copy `examples/data/master.yaml` to `data/master.yaml` and replace it with your own history. Write more bullets than fit on a page, tag them, and give the strongest ones priority 1.
-2. Run `python build.py serve`. Paste a job listing under New application and choose Create and draft with Claude.
+1. Run `python build.py serve` and choose Start from the demo master (or copy `examples/data/master.yaml` to `data/master.yaml` yourself). Replace it with your own history. Write more bullets than fit on a page, tag them, and give the strongest ones priority 1.
+2. Paste a job listing under New application and choose Create and draft with Claude.
 3. Review the draft: check the requirement chips, swap bullets, reword where it helps, and fill the page.
 4. Build PDFs, then check the build output says one page for both files.
 5. After you send them, choose Mark submitted so later master changes never rebuild what the studio has.

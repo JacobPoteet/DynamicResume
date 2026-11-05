@@ -71,6 +71,7 @@ const ON_OUTSIDE_EDIT = { blocked: () => false };
 
 let lastHash = location.hash;
 function route() {
+  if (S.init.needs_master) return showFirstRun();
   const [a, b, c] = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (a !== "master" && lastHash.startsWith("#/master") && masterDirty()) {
     if (!confirm("You have unsaved master changes. Leave and discard them?")) {
@@ -90,6 +91,37 @@ function route() {
     : a === "snapshots" ? showSnapshots()
     : showHome(["list", "timeline", "stats"].includes(a) ? a : "board");
   go.catch((e) => view(`<div class="page"><div class="card"><div class="bd">${esc(e.message)}</div></div></div>`));
+}
+
+// ---------- first run ----------
+
+// No master yet: nothing else in the app can load, so explain that and offer the demo as a start.
+function showFirstRun() {
+  $("#snap-btn").hidden = true;
+  view(`<div class="page"><section class="card">
+    <div class="hd"><h1>Welcome to DynamicResume</h1></div>
+    <div class="bd stack">
+      <p style="margin:0">There is no master file yet at <code>${esc(S.init.master_file)}</code>. The master holds every position, bullet and skill you could show, and each application picks from it.</p>
+      <p style="margin:0">Start from the demo master, a fictional career, and replace it with your own on the Master page. Or create that file yourself, and this page moves on when it appears.</p>
+      <div class="row"><button class="primary" id="first-run">Start from the demo master</button><span id="first-run-err"></span></div>
+    </div>
+  </section></div>`);
+  $("#first-run").onclick = async () => {
+    try {
+      const r = await api("POST", "/api/master/start-from-demo");
+      S.versions = { ...S.versions, ...r.versions };
+      toast(`Copied the demo to ${esc(r.master_file)}. Replace it with your own history on the Master page.`, false, 8000);
+      masterAppeared();
+    } catch (e) {
+      $("#first-run-err").innerHTML = `<span class="pill bad">${esc(e.message)}</span>`;
+    }
+  };
+}
+
+function masterAppeared() {
+  S.init.needs_master = false;
+  $("#snap-btn").hidden = false;
+  route();
 }
 
 // ---------- home ----------
@@ -1668,6 +1700,10 @@ async function pollVersions() {
   }
   if (serverLost) status("");
   serverLost = false;
+  if (S.init.needs_master) {
+    if (v.master) masterAppeared();
+    return;
+  }
   const moved = Object.keys(v).some((k) => k in S.versions && v[k] > S.versions[k] + 0.001);
   S.versions = { ...S.versions, ...v };
   if (moved && !S.app && location.hash.startsWith("#/master")) {

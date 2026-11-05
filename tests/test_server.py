@@ -17,8 +17,8 @@ def serve(handler, rel):
     return Handler.output_file(handler, rel)
 
 
-def test_init_lists_the_paper_sizes():
-    out = init(SimpleNamespace(example=True), None, {})
+def test_init_lists_the_paper_sizes(ws):
+    out = init(SimpleNamespace(example=True, ws=ws), None, {})
     assert out["papers"] == ["letter", "a4"] and out["default_paper"] == "letter"
 
 

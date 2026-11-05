@@ -116,7 +116,8 @@ def route(method, pattern):
 def init(s, body, q):
     return {"example": s.example, "templates": build.templates(), "default_template": build.DEFAULT_TEMPLATE,
             "papers": list(build.PAPERS), "default_paper": build.DEFAULT_PAPER,
-            "claude": bool(claude_path()), "data_home": None if s.example or HOME == ROOT else str(HOME)}
+            "claude": bool(claude_path()), "data_home": None if s.example or HOME == ROOT else str(HOME),
+            "needs_master": not s.ws.master_path.exists(), "master_file": build.rel(s.ws.master_path)}
 
 
 @route("GET", "/api/versions")
@@ -266,6 +267,13 @@ def put_master(s, body, q):
                 build.lint(text, "master")
     return {"master": master, "text": s.ws.master_text(), "usage": s.ws.bullet_usage(),
             "versions": s.versions(), "warnings": warnings}
+
+
+@route("POST", "/api/master/start-from-demo")
+def start_from_demo(s, body, q):
+    with LOCK:
+        s.ws.start_from_demo()
+    return {"master_file": build.rel(s.ws.master_path), "versions": s.versions()}
 
 
 @route("POST", "/api/check")

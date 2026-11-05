@@ -186,10 +186,19 @@ class Workspace:
     # ----- master -----
 
     def master(self):
-        return build.load_yaml(self.master_path)
+        return build.load_master(self.master_path)
 
     def master_text(self):
+        if not self.master_path.exists():
+            build.load_master(self.master_path)  # raises the first-run message
         return self.master_path.read_text(encoding="utf-8")
+
+    def start_from_demo(self):
+        """A first run: copy the fictional demo master to data/master.yaml to edit from."""
+        if self.master_path.exists():
+            raise BuildError(f"{build.rel(self.master_path)} already exists")
+        self.master_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "examples" / "data" / "master.yaml", self.master_path)
 
     def check_master(self, data):
         build.validate_master(data)
@@ -299,9 +308,10 @@ class Workspace:
         app = self.apps_dir / name
         if app.exists():
             raise BuildError(f"applications/{name} already exists")
+        starter = self.starter_tailor(studio, role)  # before the folder: with no master, nothing is left behind
         app.mkdir(parents=True)
         (app / "listing.md").write_text(f"# {studio}: {role}\n\n{(listing or '').strip()}\n", encoding="utf-8")
-        self.save_tailor(name, self.starter_tailor(studio, role))
+        self.save_tailor(name, starter)
         return name
 
     def starter_tailor(self, studio, role):
