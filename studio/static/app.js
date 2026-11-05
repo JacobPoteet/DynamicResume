@@ -1038,7 +1038,7 @@ function renderLetterLeft() {
       <label class="field">Closing<input data-field="cl-closing" value="${esc(cl.closing)}" placeholder="Sincerely,"></label>
     </div>
     <label class="field">Date (optional, printed above the greeting)<input data-field="cl-date" value="${esc(cl.date)}" placeholder="October 22, 2026"></label>
-    <label class="field">Letter body: cover-letter.md, a blank line between paragraphs
+    <label class="field">Letter body: plain paragraphs with a blank line between them. Markdown prints as typed.
       <textarea id="letter-text" placeholder="${S.init.claude ? "Draft with Claude on the Listing tab writes a first version here." : ""}">${esc(S.app.letter || "")}</textarea></label>
     <div class="muted" id="letter-count" style="font-size:12px"></div>
   </div>`;

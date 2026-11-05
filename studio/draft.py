@@ -35,7 +35,7 @@ Do not create or edit any files. Reply with only one JSON object, no prose and n
     ]
   }},
   "tailor": {{ "the tailor.yaml content as JSON, per the schema in CLAUDE.md" }},
-  "cover_letter": "the letter body, paragraphs separated by a blank line, no greeting or closing",
+  "cover_letter": "the letter body as plain text (Markdown prints as typed), paragraphs separated by a blank line, no greeting or closing",
   "gaps": [{{"text": "something the listing asks for that the master cannot back up", "topic": "short-topic"}}],
   "notes": "two or three sentences: which bullets you led with and why"
 }}

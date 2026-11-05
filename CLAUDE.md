@@ -56,7 +56,7 @@ When tailoring from a chat instead, follow these steps and also write `listing.y
 3. Read `data/master.yaml`. Pick bullets by tag match against the listing, then priority (1 = strongest). Order bullets within each position by relevance to the listing, not by priority alone.
 4. Write `tailor.yaml`: a `headline`, ordered bullet ids per position, `skills_first`, optional `overrides` and `short`. Never select a bullet and its `variant_of` partner together.
 5. Reword with `overrides` only where it helps match the listing's language. To save space, list a bullet under `short` (when the master has a `short` text) rather than pasting a shorter override. Never edit the master for one application.
-6. Write `cover-letter.md`: paragraphs separated by blank lines. Set greeting and closing in `tailor.yaml` under `cover_letter`.
+6. Write `cover-letter.md`: plain paragraphs separated by blank lines. It is not rendered as Markdown: syntax prints as typed, and the build warns about it. Set greeting and closing in `tailor.yaml` under `cover_letter`.
 7. Run `python build.py build <folder>`. Confirm the output says 1 page for both PDFs. If over, it says about how many lines to cut: use `short` texts, trim the bullets it lists as having nearly empty last lines, or cut lowest-priority bullets or skill groups; do not shrink fonts. Fix any role line or headline it says wraps. If the last page is well under 90% full, say so: the user may want to add a bullet.
 8. Write `listing.yaml`, giving each gap a `topic` (reuse the topics other applications use), and tell the user which bullets were chosen and what the master cannot back up, so they can add bullets.
 

@@ -4,7 +4,7 @@ import copy
 import pytest
 
 import build
-from conftest import texts
+from conftest import EXAMPLE_APP, REPO, texts
 
 
 def by_id(master):
@@ -146,6 +146,42 @@ def test_an_invalid_tailor_paper_is_a_build_error(master, tailor, paper):
 def test_an_invalid_master_paper_fails_validation(master):
     with pytest.raises(build.BuildError, match="unknown paper 'legal' in master basics"):
         build.validate_master(with_default_paper(master, "legal"))
+
+
+@pytest.mark.parametrize("letter, what", [
+    ("I shipped **three** games.", "bold"),
+    ("I shipped __three__ games.", "bold"),
+    ("I shipped *three* games.", "italics"),
+    ("I shipped _three_ games.", "italics"),
+    ("See [my site](https://example.com) for more.", "a link"),
+    ("I wrote `tools` for it.", "inline code"),
+    ("# About me\n\nI ship games.", "a heading"),
+    ("What I did:\n- shipped\n- tuned", "a list"),
+    ("What I did:\n1. shipped\n2. tuned", "a list"),
+    ("> A quote from a review", "a quote"),
+])
+def test_a_letter_warns_about_markdown(master, tailor, letter, what):
+    with build.collect_warnings() as w:
+        data = build.letter_data(master, tailor, letter)
+    assert any(f"Markdown ({what})" in x for x in w), w
+    assert " ".join(data["paragraphs"]) == " ".join(letter.split())  # printed as typed
+
+
+@pytest.mark.parametrize("letter", [
+    "I shipped three games.\n\nI tuned 2*3*4 grids and wrote snake_case_names.",
+    "Rates rose by 5% - a small change (see below).\n\nDear [Team], thanks.",
+    "In 2019. I joined the team.",
+])
+def test_a_plain_letter_has_no_markdown_warning(master, tailor, letter):
+    with build.collect_warnings() as w:
+        build.letter_data(master, tailor, letter)
+    assert not any("Markdown" in x for x in w), w
+
+
+def test_the_demo_letter_has_no_markdown_warning(master, tailor):
+    with build.collect_warnings() as w:
+        build.letter_data(master, tailor, (REPO / "examples/applications" / EXAMPLE_APP / "cover-letter.md").read_text(encoding="utf-8"))
+    assert not any("Markdown" in x for x in w), w
 
 
 def test_lint_flags_em_dashes_and_banned_phrases():

@@ -397,7 +397,28 @@ def resume_data(master, tailor):
     return data
 
 
+MARKDOWN = [  # the template prints a letter as typed, so these would show up in the PDF
+    ("bold", re.compile(r"\*\*[^*\n]+\*\*|__[^_\n]+__")),
+    ("italics", re.compile(r"(?<![\w*])\*[^\s*][^*\n]*\*(?![\w*])|(?<![\w_])_[^\s_][^_\n]*_(?![\w_])")),
+    ("a link", re.compile(r"\[[^\]\n]+\]\([^)\n]+\)")),
+    ("inline code", re.compile(r"`[^`\n]+`")),
+    ("a heading", re.compile(r"^ *#{1,6} +\S.*", re.M)),
+    ("a list", re.compile(r"^ *(?:[-*+]|\d{1,3}[.)]) +\S.*", re.M)),
+    ("a quote", re.compile(r"^ *> *\S.*", re.M)),
+]
+
+
+def lint_letter_markdown(text):
+    """Letters are plain paragraphs: warn about Markdown syntax that would print literally."""
+    for what, rx in MARKDOWN:
+        m = rx.search(text)
+        if m:
+            warn(f"cover letter has Markdown ({what}) that will print as typed: {m.group(0).strip()[:60]!r}. "
+                 "Letters are plain paragraphs.")
+
+
 def letter_data(master, tailor, text):
+    lint_letter_markdown(text)
     cl = tailor.get("cover_letter") or {}
     paragraphs = [" ".join(p.split()) for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
     data = {

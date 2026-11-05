@@ -43,7 +43,7 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 **ATS-friendly output.** Single column, real text, standard section names, no icons, and each role's company repeated so autofill parsers never mistake a team name for an employer. Template changes are checked with `pypdf` text extraction. PDFs carry a title and author, and contact and project URLs are links.
 
-**Matching cover letters.** Write paragraphs in Markdown. The letter shares the resume's header, colors and margins.
+**Matching cover letters.** Write plain paragraphs with a blank line between them. `cover-letter.md` is not rendered as Markdown: bold, links and lists print as typed, so the build warns when it finds any. The letter shares the resume's header, colors and margins.
 
 **Submitted applications stay as sent.** Once you send an application, choose Mark submitted. The PDFs are frozen exactly as they are, with the tailor, letter, listing and master that made them, in the application's `submitted/` folder. Builds skip it, the app opens it read-only and shows the PDFs you sent, and the master is free to change without touching it. When a studio calls you back, you can open the resume they actually have. Unsubmit makes it editable again.
 
