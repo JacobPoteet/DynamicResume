@@ -115,6 +115,7 @@ def route(method, pattern):
 @route("GET", "/api/init")
 def init(s, body, q):
     return {"example": s.example, "templates": build.templates(), "default_template": build.DEFAULT_TEMPLATE,
+            "papers": list(build.PAPERS), "default_paper": build.DEFAULT_PAPER,
             "claude": bool(claude_path()), "data_home": None if s.example or HOME == ROOT else str(HOME)}
 
 

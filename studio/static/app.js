@@ -174,6 +174,7 @@ async function showEditor(name, tab) {
   const t = S.app.tailor;
   const tabs = [["resume", "Resume"], ["letter", "Cover letter"], ["listing", "Listing"]].filter(([k]) => TABS[k]);
   const tpl = t.template || S.init.default_template;
+  const paper = t.paper || S.master.basics?.paper || S.init.default_paper;
   const sub = S.app.submitted;
   const tools = sub ? `
       <span class="pill good" title="Builds skip this application">Submitted ${esc(fmtDay(sub.date))}</span>
@@ -181,6 +182,9 @@ async function showEditor(name, tab) {
       <button id="unsubmit" title="Make this application editable again">Unsubmit</button>` : `
       <label class="row muted" style="font-size:13px"><span class="tpl-word">Template</span>
         <select id="tpl" aria-label="Resume template">${S.init.templates.map((x) => `<option ${x === tpl ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
+      </label>
+      <label class="row muted" style="font-size:13px" title="Page size for the resume and the cover letter"><span class="tpl-word">Paper</span>
+        <select id="paper" aria-label="Paper size">${S.init.papers.map((x) => `<option value="${esc(x)}" ${x === paper ? "selected" : ""}>${x === "letter" ? "US Letter" : esc(x.toUpperCase())}</option>`).join("")}</select>
       </label>
       <span id="pdf-state"></span>
       <button id="submit" title="Freeze the PDFs as you sent them">Mark submitted</button>
@@ -200,6 +204,8 @@ async function showEditor(name, tab) {
   if (sub) return showSent(kind);
   renderPdfState();
   $("#tpl").onchange = (e) => { t.template = e.target.value; queueSave(0); };
+  // Paper also changes the letter, whose preview a resume save does not refresh.
+  $("#paper").onchange = (e) => { t.paper = e.target.value; delete S.previews.letter; queueSave(0); };
   $("#finalize").onclick = finalize;
   $("#submit").onclick = markSubmitted;
   if (S.previews[kind]) renderPreview(kind);
@@ -208,7 +214,7 @@ async function showEditor(name, tab) {
         <div class="fillline"><span class="pv-busy"><span class="spinner"></span>Rendering the preview</span></div>
         <div class="meter"></div>
       </div>
-      <div class="pages ${fitClass()}"><div class="sheet ghost"></div></div>`;
+      <div class="pages ${fitClass()}"><div class="sheet ghost ${paper === "a4" ? "a4" : ""}"></div></div>`;
     setBusy(true);
     fitSheets();
     refreshPreview(kind);
