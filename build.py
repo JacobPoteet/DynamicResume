@@ -615,10 +615,10 @@ def brief(f):
     return None if not f else {"pages": f["pages"], "fill": f["fill"], "spill_lines": f.get("spill_lines")}
 
 
-def last_fit(app, example):
+def last_fit(app, example, kind="resume"):
     p = fit_path(app, example)
     try:
-        return brief(json.loads(p.read_text(encoding="utf-8")).get("resume"))
+        return brief(json.loads(p.read_text(encoding="utf-8")).get(kind))
     except (OSError, ValueError):
         return None
 

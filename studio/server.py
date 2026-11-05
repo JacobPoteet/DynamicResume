@@ -198,6 +198,12 @@ def finalize(s, body, q, name):
     return s.finalize(name)
 
 
+@route("GET", "/api/apps/([^/]+)/send-text")
+def send_text(s, body, q, name):
+    with LOCK:  # after a save already on its way, so the text is what the page last showed
+        return s.ws.send_text(name)
+
+
 @route("POST", "/api/apps/([^/]+)/submit")
 def submit(s, body, q, name):
     with LOCK:
