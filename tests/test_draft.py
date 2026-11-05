@@ -3,9 +3,32 @@ import threading
 
 import pytest
 
+import studio.draft
 from build import ROOT, BuildError
 from conftest import EXAMPLE_APP
-from studio.draft import Drafts, clean_gap, clean_tailor, parse_json
+from studio.draft import Drafts, clean_gap, clean_tailor, listing_is_empty, parse_json
+
+
+@pytest.mark.parametrize("text, empty", [
+    ("", True),
+    ("  \n\n", True),
+    ("# Test Forge: Designer\n\n\n", True),
+    ("# Test Forge: Designer\n\nDesign bosses.\n", False),
+    ("Design bosses.\n", False),
+    ("# Test Forge: Designer\n## About the role\n", False),
+])
+def test_listing_is_empty(text, empty):
+    assert listing_is_empty(text) is empty
+
+
+def test_a_draft_is_refused_when_the_listing_has_only_its_title(ws, monkeypatch):
+    # Never reaches Claude: the path is a stand-in, and the check stops before anything starts.
+    monkeypatch.setattr(studio.draft, "claude_path", lambda: "no-such-claude")
+    name = ws.create_app("Test Forge", "Designer", "")
+    drafts = Drafts(ws, threading.Lock(), ws.home / "build")
+    with pytest.raises(BuildError, match="listing.md is empty"):
+        drafts.start(name)
+    assert drafts.status(name) == {"state": "idle"}
 
 
 @pytest.mark.parametrize("reply, expected", [

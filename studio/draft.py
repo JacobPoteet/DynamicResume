@@ -62,6 +62,12 @@ def claude_path():
     return shutil.which("claude")
 
 
+def listing_is_empty(text):
+    """True for a blank listing.md, or one holding only the title line a new application starts with."""
+    lines = [line for line in text.splitlines() if line.strip()]
+    return not lines or (len(lines) == 1 and lines[0].lstrip().startswith("#"))
+
+
 class Drafts:
     """Background draft jobs, one per application."""
 
@@ -84,7 +90,7 @@ class Drafts:
             raise BuildError("the claude command was not found on PATH")
         if self.jobs.get(name, {}).get("state") == "running":
             raise BuildError("a draft is already running for this application")
-        if not (app / "listing.md").read_text(encoding="utf-8").strip():
+        if listing_is_empty(self.ws._read_text(app / "listing.md") or ""):
             raise BuildError("listing.md is empty; paste the listing first")
         job = {"state": "running", "started": time.time(), "log": ["Starting Claude Code"], "result": None}
         self.jobs[name] = job
