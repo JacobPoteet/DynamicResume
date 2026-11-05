@@ -13,7 +13,9 @@ const CLOSED = ["rejected", "ghosted", "withdrew"];
 const FORMATS = [["", "Not set"], ["phone", "Phone"], ["video", "Video"], ["onsite", "Onsite"], ["take-home", "Take-home"]];
 const MODES = [["board", "Board"], ["list", "List"], ["timeline", "Timeline"], ["stats", "Stats"]];
 
-const T = { apps: [], stats: null, mode: "board", tray: pref.get("tray", ""), hist: null };
+// q and stage filter Board and List; sort and dir order List. All four are remembered per browser.
+const T = { apps: [], stats: null, mode: "board", tray: pref.get("tray", ""), hist: null,
+  q: pref.get("q", ""), stage: pref.get("stage", ""), sort: pref.get("sort", "updated"), dir: pref.get("dir", "desc") };
 
 // ----- dates (local calendar days, "YYYY-MM-DD") -----
 
@@ -58,12 +60,14 @@ async function showHome(mode = "board") {
       <span class="grow"></span>
       <button class="primary" id="new-app">New application</button>
     </div>
+    ${filterBar(mode)}
     <div id="tbody"><div class="empty"><span class="spinner"></span></div></div>
   </div>
   <dialog id="new-dlg" class="dlg" aria-labelledby="new-h">${newAppForm()}</dialog>
   <dialog id="ev-dlg" class="dlg"></dialog>
   <dialog id="hist-dlg" class="hist-dlg" aria-labelledby="hist-h"></dialog>`);
-  $("#new-app").onclick = () => $("#new-dlg").showModal();
+  $("#new-app").onclick = openNewApp;
+  wireFilters();
   $("#na-create").onclick = () => createApp(false);
   $("#na-save").onclick = () => createApp(false, true);
   if ($("#na-draft")) $("#na-draft").onclick = () => createApp(true);
@@ -79,6 +83,7 @@ function newAppForm() {
         <label class="field">Studio<input id="na-studio" placeholder="Sample Studio"></label>
         <label class="field">Role<input id="na-role" placeholder="Gameplay Designer"></label>
       </div>
+      <div id="na-from-box"></div>
       <label class="field">Link to the posting (optional)<input id="na-url" type="url" placeholder="https://"></label>
       <label class="field">Job listing<textarea id="na-listing" rows="12" placeholder="Paste the full listing"></textarea></label>
       <div class="muted" style="font-size:12px">${S.init.claude
@@ -101,13 +106,84 @@ async function refreshHome() {
   T.apps = apps;
   T.stats = stats;
   if (!$("#tbody")) return;
-  ({ board: renderBoard, list: renderList, timeline: renderTimeline, stats: renderStats })[T.mode]();
+  redraw();
   if (T.hist && $("#hist-dlg").open) renderHistory();
   api("GET", "/api/versions").then((v) => (S.versions = { ...S.versions, ...v })).catch(() => {});
 }
 
 const appLabel = (a) => a.studio || a.name;
 const findApp = (name) => T.apps.find((a) => a.name === name);
+
+// ----- search, filter, start from -----
+
+const stages = () => [...COLUMNS, ...TRAYS];
+const filtering = () => Boolean(T.q.trim() || stages().some(([k]) => k === T.stage));
+
+// The applications that pass the search box (every word in studio or role) and the stage menu.
+function visible() {
+  const words = T.q.toLowerCase().split(/\s+/).filter(Boolean);
+  const stage = stages().some(([k]) => k === T.stage) ? T.stage : "";
+  return T.apps.filter((a) => {
+    const hay = `${appLabel(a)} ${a.role}`.toLowerCase();
+    return (!stage || a.track.column === stage) && words.every((w) => hay.includes(w));
+  });
+}
+
+// Drawn once by showHome, outside #tbody, so redrawing the board never takes focus from the box.
+function filterBar(mode) {
+  return `<div class="filters" id="filters" role="search" ${mode === "board" || mode === "list" ? "" : "hidden"}>
+    <input type="search" id="f-q" placeholder="Search studio or role" aria-label="Search applications by studio or role" value="${esc(T.q)}" autocomplete="off">
+    <select id="f-stage" aria-label="Filter by stage"><option value="">All stages</option>${stages().map(([k, l]) =>
+      `<option value="${k}" ${k === T.stage ? "selected" : ""}>${l}</option>`).join("")}</select>
+    <button type="button" class="ghost small" id="f-clear" hidden>Clear filters</button>
+    <span class="faint" id="f-count" role="status"></span>
+  </div>`;
+}
+
+function wireFilters() {
+  $("#f-q").oninput = (e) => { T.q = e.target.value; pref.set("q", T.q); redraw(); };
+  $("#f-stage").onchange = (e) => { T.stage = e.target.value; pref.set("stage", T.stage); redraw(); };
+  $("#f-clear").onclick = clearFilters;
+}
+
+function clearFilters() {
+  T.q = T.stage = "";
+  pref.set("q", "");
+  pref.set("stage", "");
+  $("#f-q").value = "";
+  $("#f-stage").value = "";
+  redraw();
+  $("#f-q").focus();
+}
+
+// Redraw the current view from what is already loaded.
+function redraw() {
+  if (!$("#tbody")) return;
+  ({ board: renderBoard, list: renderList, timeline: renderTimeline, stats: renderStats })[T.mode]();
+  const shown = visible().length, on = filtering();
+  $("#f-clear").hidden = !on;
+  $("#f-count").textContent = on && T.apps.length ? `${shown} of ${plural(T.apps.length, "application")}` : "";
+}
+
+// What Board and List show when the search or stage hides every application.
+function noMatches() {
+  return `<div class="card empty">No applications match${T.q.trim() ? ` "${esc(T.q.trim())}"` : ""}${stages().some(([k]) => k === T.stage) ? ` in ${esc(COL_LABEL[T.stage])}` : ""}.
+    <div style="margin-top:12px"><button data-clear>Clear filters</button></div></div>`;
+}
+
+// New application. "Start from" lists every application, newest edit first.
+function openNewApp() {
+  const box = $("#na-from-box");
+  box.innerHTML = T.apps.length ? `<label class="field">Start from (optional)<select id="na-from">
+      <option value="">Nothing, pick priority 1 bullets</option>
+      ${T.apps.map((a) => `<option value="${esc(a.name)}">${esc(appLabel(a))}, ${esc(a.role)} (${esc(COL_LABEL[a.track.column])})</option>`).join("")}</select></label>
+    <label class="check" id="na-letter-row" hidden><input type="checkbox" id="na-letter"> Also copy its cover letter</label>
+    <div class="muted" id="na-from-note" style="font-size:12px" hidden>Copies its bullets, overrides, headline and template into the new application. Tracking, job details and PDFs stay behind, and a submitted application is copied as it was sent.</div>` : "";
+  if ($("#na-from")) $("#na-from").onchange = (e) => {
+    $("#na-letter-row").hidden = $("#na-from-note").hidden = !e.target.value;
+  };
+  $("#new-dlg").showModal();
+}
 
 // ----- board -----
 
@@ -166,14 +242,20 @@ function card(a) {
 
 function renderBoard() {
   const by = Object.fromEntries([...COLUMNS, ...TRAYS].map(([k]) => [k, []]));
-  for (const a of T.apps) by[a.track.column].push(a);
+  const shown = visible();
+  for (const a of shown) by[a.track.column].push(a);
   if (!T.apps.length) {
     $("#tbody").innerHTML = `<div class="card empty">Paste a job listing to start your first application.
       <div style="margin-top:12px"><button class="primary" data-new>New application</button></div></div>`;
-    $("[data-new]").onclick = () => $("#new-dlg").showModal();
+    $("[data-new]").onclick = openNewApp;
     return;
   }
-  const open = TRAYS.some(([k]) => k === T.tray) ? T.tray : "";
+  if (!shown.length) {
+    $("#tbody").innerHTML = `${strip()}${noMatches()}`;
+    $("[data-clear]").onclick = clearFilters;
+    return wireBoard();
+  }
+  const open = TRAYS.some(([k]) => k === T.stage) ? T.stage : TRAYS.some(([k]) => k === T.tray) ? T.tray : "";  // a stage filter opens its tray
   $("#tbody").innerHTML = `${strip()}
     <div class="board">${COLUMNS.map(([k, l]) => `
       <section class="col" ${k === "saved" ? "" : `data-drop="${k}"`} aria-label="${l}, ${by[k].length}">
@@ -585,16 +667,67 @@ function renderHistory() {
 
 // ----- list -----
 
+// Each sortable column: key -> [heading, first direction, sort value]. Rows with no value
+// (never applied) always sort last.
+const SORTS = {
+  studio: ["Studio", "asc", (a) => `${appLabel(a)} ${a.role}`.toLowerCase()],
+  stage: ["Stage", "asc", (a) => stages().findIndex(([k]) => k === a.track.column)],
+  applied: ["Applied", "desc", (a) => a.track.applied || null],
+  updated: ["Last update", "desc", (a) => a.updated],
+};
+
+function sortedList(apps) {
+  const [, , value] = SORTS[T.sort] || SORTS.updated;
+  const sign = T.dir === "asc" ? 1 : -1;
+  return [...apps].sort((a, b) => {
+    const x = value(a), y = value(b);
+    if (x == null || y == null) return (x == null) - (y == null);
+    return (x < y ? -sign : x > y ? sign : 0) || `${appLabel(a)} ${a.role}`.localeCompare(`${appLabel(b)} ${b.role}`);
+  });
+}
+
 function renderList() {
-  const rows = T.apps.map((a) => `
-    <li><a href="#/app/${enc(a.name)}">
-      <strong>${esc(appLabel(a))}</strong>
-      <span class="pills"><span class="pill ${CLOSED.includes(a.track.column) ? "plain" : ""}">${COL_LABEL[a.track.column]}</span><span class="pill plain">${esc(a.template)}</span>${a.submitted
-        ? `<span class="pill good" title="PDFs frozen as sent">Submitted ${esc(fmtDay(a.submitted.date))}</span>` : pdfPill(a.pdfs)}</span>
-      <span class="sub">${esc(a.role)} · edited ${ago(a.updated)}</span>
-    </a><button class="ghost danger" data-delete="${esc(a.name)}" aria-label="Delete ${esc(appLabel(a))}, ${esc(a.role)}">Delete</button></li>`).join("");
-  $("#tbody").innerHTML = `<section class="card">${rows ? `<ul class="app-list">${rows}</ul>` : `<div class="empty">No applications yet.</div>`}</section>`;
+  if (!SORTS[T.sort]) T.sort = "updated";
+  const shown = sortedList(visible());
+  if (!T.apps.length) {
+    $("#tbody").innerHTML = `<section class="card"><div class="empty">No applications yet.</div></section>`;
+    return;
+  }
+  if (!shown.length) {
+    $("#tbody").innerHTML = noMatches();
+    $("[data-clear]").onclick = clearFilters;
+    return;
+  }
+  const head = Object.entries(SORTS).map(([k, [label]]) => {
+    const on = T.sort === k;
+    return `<th scope="col" aria-sort="${on ? (T.dir === "asc" ? "ascending" : "descending") : "none"}">
+      <button type="button" class="sort" data-sort="${k}">${label}<span aria-hidden="true">${on ? (T.dir === "asc" ? " ▲" : " ▼") : ""}</span></button></th>`;
+  }).join("");
+  const rows = shown.map((a) => `
+    <tr>
+      <td class="l-app"><a href="#/app/${enc(a.name)}"><strong>${esc(appLabel(a))}</strong><span class="sub">${esc(a.role)}</span></a></td>
+      <td><span class="pill ${CLOSED.includes(a.track.column) ? "plain" : ""}">${COL_LABEL[a.track.column]}</span></td>
+      <td>${a.track.applied ? esc(fmtShort(a.track.applied)) : `<span class="faint">Not sent</span>`}</td>
+      <td title="${esc(new Date(a.updated * 1000).toLocaleString())}">${ago(a.updated)}</td>
+      <td class="pills"><span class="pill plain">${esc(a.template)}</span>${a.submitted
+        ? `<span class="pill good" title="PDFs frozen as sent">Submitted ${esc(fmtDay(a.submitted.date))}</span>` : pdfPill(a.pdfs)}</td>
+      <td><button class="ghost danger" data-delete="${esc(a.name)}" aria-label="Delete ${esc(appLabel(a))}, ${esc(a.role)}">Delete</button></td>
+    </tr>`).join("");
+  const focused = document.activeElement?.dataset?.sort;
+  $("#tbody").innerHTML = `<section class="card list-wrap"><table class="app-table">
+    <thead><tr>${head}<th scope="col">Files</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+    <tbody>${rows}</tbody></table></section>`;
+  if (focused) $(`[data-sort="${focused}"]`)?.focus();  // the click redrew the header it was on
   $("#tbody").onclick = (e) => {
+    const sort = e.target.closest("[data-sort]");
+    if (sort) {
+      const k = sort.dataset.sort;
+      T.dir = T.sort === k ? (T.dir === "asc" ? "desc" : "asc") : SORTS[k][1];
+      T.sort = k;
+      pref.set("sort", T.sort);
+      pref.set("dir", T.dir);
+      return redraw();
+    }
     const b = e.target.closest("[data-delete]");
     if (b) deleteApp(findApp(b.dataset.delete));
   };

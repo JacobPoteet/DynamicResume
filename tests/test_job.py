@@ -79,7 +79,7 @@ def test_submitting_copies_job_yaml_and_the_live_one_stays_editable(ws):
 
 def test_a_bad_link_creates_no_folder(ws):
     with pytest.raises(BuildError):
-        ws.create_app("Lantern Works", "Designer", "", {"url": "javascript:x"})
+        ws.create_app("Lantern Works", "Designer", "", details={"url": "javascript:x"})
     assert not any("lantern" in p.name for p in ws.apps_dir.iterdir())
 
 
@@ -93,7 +93,7 @@ def test_a_saved_lead_needs_only_a_studio_and_a_role():
 
 
 def test_saved_leads_sit_in_their_own_column_until_drafting_starts(ws):
-    name = ws.create_app("Lantern Works", "Gameplay Designer", "", {"saved": True, "url": "https://example.com/j"})
+    name = ws.create_app("Lantern Works", "Gameplay Designer", "", details={"saved": True, "url": "https://example.com/j"})
     assert ws.track(ws.apps_dir / name)["column"] == "saved"
     assert {a["name"]: a["track"]["column"] for a in ws.list_apps()}[name] == "saved"
     ws.save_job(name, {"url": "https://example.com/j"})  # Start drafting clears the flag
@@ -103,12 +103,12 @@ def test_saved_leads_sit_in_their_own_column_until_drafting_starts(ws):
 def test_saved_leads_do_not_count_in_stats(ws):
     before = ws.stats(TODAY)
     for i in range(3):
-        ws.create_app(f"Studio {i}", "Designer", "", {"saved": True})
+        ws.create_app(f"Studio {i}", "Designer", "", details={"saved": True})
     assert ws.stats(TODAY) == before
 
 
 def test_a_saved_lead_cannot_be_logged_as_sent_before_it_is_drafted(ws):
-    name = ws.create_app("Lantern Works", "Designer", "", {"saved": True})
+    name = ws.create_app("Lantern Works", "Designer", "", details={"saved": True})
     with pytest.raises(BuildError):
         ws.add_event(name, {"date": "2026-11-05", "stage": "applied"})  # no PDFs yet
 
