@@ -127,6 +127,8 @@ The editor in `studio/` is a standard-library Python HTTP server bound to 127.0.
 
 Pick one with `template:` in `tailor.yaml` or the Template menu in the app. Fonts fall back from Calibri to Arial to Typst's built-in serif; change them in `templates/timeline.typ` (`common.typ` for `resume`).
 
+Every template prints on US Letter by default. For A4, set `paper: a4` in `tailor.yaml` or pick it in the Paper menu next to Template. It applies to the resume and the cover letter, and the fill figures use the real page. To make A4 the default for every application, set `paper: a4` under `basics` in `master.yaml`. A4 is narrower and taller than Letter, so check the fit after switching.
+
 ## Project layout
 
 ```
