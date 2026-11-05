@@ -110,7 +110,7 @@ Tags in use: `leadership, mentorship, ui, game-ai, generative-ai, multiplayer, v
 ## tailor.yaml schema
 
 ```yaml
-target: {studio: ..., role: ...}              # studio is used in output file names
+target: {studio: ..., role: ...}              # studio is used in output file names; see the note below
 template: resume-inline | resume-games | resume   # optional, default resume-inline
 headline: Senior Technical Designer | Quests, Encounters   # optional, one line under the name
 games: [game ids]                             # optional; absent = all, [] = none
@@ -124,6 +124,8 @@ overrides: {bullet id: replacement text}
 short: [bullet ids]                           # use the master's `short` text for these; an override wins
 cover_letter: {greeting, closing, date}       # all optional
 ```
+
+Renaming the studio through the app (saved when you leave the field) renames the PDFs in the application folder and moves its `studios.yaml` notes if the new name has none. The notes stay under the old name too while another application uses it, and `submitted/` is never touched. A rename in a text editor does neither: build again, and move the notes by hand.
 
 An unknown id, or a bullet selected with its `variant_of` partner, is a build error. An override or `short` id that matches no selected bullet, or a top-level key the build does not use, is a warning.
 

@@ -476,7 +476,52 @@ class Workspace:
     def save_tailor(self, name, tailor):
         path = self.apps_dir / name / "tailor.yaml"
         doc = rt_load(path.read_text(encoding="utf-8")) if path.exists() else None
+        before, after = self._studio(doc), self._studio(tailor)
         path.write_text(rt_dump(merge(doc, tailor)), encoding="utf-8", newline="\n")
+        if doc is not None and before != after:
+            self._follow_studio_rename(path.parent, before, after)
+
+    @staticmethod
+    def _studio(tailor):
+        target = tailor.get("target") if isinstance(tailor, dict) else None
+        return str((target or {}).get("studio") or "").strip()
+
+    def _follow_studio_rename(self, app, before, after):
+        """PDF names and studio notes both hang off the studio name, so bring them along. A
+        submitted application is left alone: what was sent stays as it was."""
+        if build.submission(app):
+            return
+        try:
+            master = self.master()
+            old, new = ({"target": {"studio": s}} for s in (before, after))
+            for src, dest in zip(build.output_names(master, old, app), build.output_names(master, new, app)):
+                self._rename_pdf(app / src, app / dest)
+            self._carry_studio_notes(app, before, after)
+        except BuildError as e:
+            build.warn(f"Renamed the studio, but could not update its PDFs or notes: {e}")
+
+    @staticmethod
+    def _rename_pdf(src, dest):
+        if src.name == dest.name or not src.exists():
+            return
+        if dest.exists() and not src.samefile(dest):  # samefile: a change of case on Windows
+            build.warn(f"Kept {src.name}: {dest.name} already exists. Build PDFs to replace it.")
+            return
+        try:
+            src.rename(dest)
+        except OSError as e:
+            build.warn(f"Could not rename {src.name} to {dest.name} ({e.strerror}). Close it if it is open, then Build PDFs.")
+
+    def _carry_studio_notes(self, app, before, after):
+        """Move the notes to the new name if it has none. They stay under the old name too
+        while another application still uses it."""
+        notes = self.studio_notes(before)
+        if not before or not after or before.lower() == after.lower() or not notes or self.studio_notes(after):
+            return
+        self.save_studio_notes(after, notes)
+        others = (self._read_yaml(a / "tailor.yaml") for a in self.app_dirs() if a != app)
+        if not any(self._studio(t).lower() == before.lower() for t in others):
+            self.save_studio_notes(before, "")
 
     def save_listing_spec(self, name, spec):
         path = self.app_dir(name) / "listing.yaml"

@@ -153,9 +153,16 @@ def delete_app(s, body, q, name):
 @route("PUT", "/api/apps/([^/]+)/tailor")
 def put_tailor(s, body, q, name):
     s.ws.require_editable(name)
-    with LOCK:
+    with LOCK, build.collect_warnings() as warnings:
         s.ws.save_tailor(name, body["tailor"])
-    return {"preview": s.preview(name, "resume", body["tailor"]), "versions": s.versions(name)}
+    # A studio rename moves the PDFs and can change which notes apply, so the page gets both back.
+    try:
+        after = {"pdfs": s.ws.pdf_status(s.ws.app_dir(name), body["tailor"]),
+                 "studio_notes": s.ws.studio_notes(s.ws._studio(body["tailor"]))}
+    except BuildError:
+        after = {}  # a broken master or studios.yaml: the preview below reports it
+    return {"preview": s.preview(name, "resume", body["tailor"]), "versions": s.versions(name),
+            "warnings": warnings, **after}
 
 
 @route("POST", "/api/apps/([^/]+)/preview/(resume|letter)")

@@ -82,6 +82,7 @@ function route() {
   lastHash = location.hash;
   const section = a === "master" ? "master" : a === "snapshots" ? "snapshots" : "apps";
   document.querySelectorAll(".top nav a").forEach((n) => n.classList.toggle("on", n.dataset.nav === section));
+  commitStudio();
   saveNow();
   saveLetter();
   saveListing();
@@ -338,6 +339,9 @@ async function saveNow() {
     S.versions = { ...S.versions, ...r.versions };
     if (seq !== saveSeq || !S.app || S.app.name !== name) return;
     S.previews.resume = r.preview;
+    if (r.pdfs) S.app.pdfs = r.pdfs;  // a studio rename changes the file names
+    if (r.studio_notes != null && !listingDirty.has("notes")) S.app.studio_notes = r.studio_notes;
+    if (r.warnings?.length) toast(r.warnings.map(esc).join("<br>"), true, 9000);
     for (const k of ["resume", "letter"]) if (S.app.pdfs[k].exists) S.app.pdfs[k].stale = true;
     renderPdfState();
     if (TABS[S.tab]?.preview === "resume") renderPreview("resume");
@@ -351,6 +355,7 @@ async function saveNow() {
 }
 
 window.addEventListener("beforeunload", (e) => {
+  commitStudio();
   if (savePending) { saveNow(); e.preventDefault(); }
 });
 
@@ -769,6 +774,7 @@ document.addEventListener("change", (e) => {
   const t = S.app.tailor;
   const act = el.dataset.act;
   const li = el.closest(".b");
+  if (el.dataset.field === "studio") return commitStudio();
   if (act === "bullet") {
     setBulletSelected(li.dataset.kind, li.dataset.owner, li.dataset.id, el.checked);
     if (el.checked) untickVariant(li.dataset.kind, li.dataset.owner, li.dataset.id);
@@ -792,9 +798,9 @@ document.addEventListener("input", (e) => {
   const el = e.target;
   if (!S.app || !el.closest("#left") || !el.dataset.field) return;
   const t = S.app.tailor;
-  if (el.dataset.field === "studio" || el.dataset.field === "role") {
+  if (el.dataset.field === "role") {
     t.target = t.target || {};
-    t.target[el.dataset.field] = el.value;
+    t.target.role = el.value;
     renderTitle();
   } else if (FIELD_SETTERS[el.dataset.field]) {
     FIELD_SETTERS[el.dataset.field](el.value);
@@ -803,6 +809,19 @@ document.addEventListener("input", (e) => {
   }
   queueSave(600);
 });
+
+// The studio name is saved when the field is left, not on each keystroke. Saving a new name
+// renames the PDFs and moves the studio's notes, and a half-typed name could match another studio.
+function commitStudio() {
+  const el = $("#left [data-field=studio]");
+  if (!el || !S.app) return;
+  const t = S.app.tailor;
+  if (el.value === ((t.target || {}).studio ?? "")) return;
+  t.target = t.target || {};
+  t.target.studio = el.value;
+  renderTitle();
+  queueSave(0);
+}
 
 const FIELD_SETTERS = {};
 FIELD_SETTERS.headline = (v) => {
@@ -1589,6 +1608,7 @@ document.addEventListener("keydown", (e) => {
     if (masterDirty() && !M.saving) saveMaster();
   } else if (S.app) {
     e.preventDefault();
+    commitStudio();
     saveNow();
     saveLetter();
     saveListing();

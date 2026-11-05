@@ -37,7 +37,7 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 **Recurring gaps.** Each draft lists what the listing asks for that your master cannot back up, with a short topic. Master, Gaps ranks those topics across every application, so you know which bullets are worth writing next.
 
-**Studio notes.** Notes about a studio (games of theirs you've played, people you know there) live in `data/studios.yaml`, are edited on the Listing tab, and go into the draft for the cover letter.
+**Studio notes.** Notes about a studio (games of theirs you've played, people you know there) live in `data/studios.yaml`, are edited on the Listing tab, and go into the draft for the cover letter. Renaming a studio in the editor brings its notes and PDFs along.
 
 **Writing lint.** Builds flag em dashes and filler phrases ("leverage", "passionate about", "spearhead" and others) in resume and letter text.
 
