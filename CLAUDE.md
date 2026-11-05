@@ -37,7 +37,7 @@ The app has four areas: Applications (a board of every application by stage, wit
 
 Mark submitted (in the editor, or `build.py submit`) copies the application's PDFs as they are, plus `tailor.yaml`, `cover-letter.md`, `listing.md`, `listing.yaml` and the current `master.yaml`, into `applications/<app>/submitted/` with a `submitted.yaml` (date, file names, whether the PDFs were older than the inputs). From then on `build <app>` refuses (a `--template` trial build to `build/` still works), `build-all` skips it, the app opens it read-only and shows the sent PDFs, the server refuses edits and drafts, and its bullets no longer block master deletes. Snapshots include the sent PDFs. Unsubmit removes `submitted/` when the folder's PDFs still match it, and otherwise keeps it as `submitted-<date>/`.
 
-Never edit, rebuild, or unsubmit a submitted application unless the user asks. Tracking is the exception: `tracking.yaml` stays editable after submitting.
+Never edit, rebuild, or unsubmit a submitted application unless the user asks. Tracking is the exception: `tracking.yaml` stays editable after submitting, and restoring a snapshot keeps the current `tracking.yaml` (the snapshot's copy is written only when an application has none).
 
 ## Application tracking
 

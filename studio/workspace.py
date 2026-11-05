@@ -626,18 +626,24 @@ class Workspace:
 
     def restore_snapshot(self, name):
         """Write the snapshot's files back over the current ones. Takes a snapshot first.
-        Files created after the snapshot are left alone."""
+        Files created after the snapshot are left alone. So is an application's tracking.yaml:
+        it records what really happened, so rolling back edits does not undo it. The snapshot's
+        copy is written only when there is none (a deleted application coming back)."""
         if not SNAP_NAME.match(name or "") or not (self.snap_dir / name).exists():
             raise BuildError(f"no snapshot named {name}")
         backup = self.create_snapshot("before-restore")
-        n = 0
+        n = kept = 0
+        apps = self.apps_dir.resolve()
         with zipfile.ZipFile(self.snap_dir / name) as z:
             for member in z.namelist():
                 base = ROOT if member.startswith("templates/") else self.home
                 dest = (base / member).resolve()
                 if base.resolve() not in dest.parents:
                     raise BuildError(f"snapshot entry outside the repo: {member}")
+                if dest.name == tracking.FILE and dest.parent.parent == apps and dest.exists():
+                    kept += 1
+                    continue
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(z.read(member))
                 n += 1
-        return {"restored": n, "backup": backup["name"]}
+        return {"restored": n, "kept_tracking": kept, "backup": backup["name"]}

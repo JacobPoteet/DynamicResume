@@ -93,6 +93,37 @@ def test_restore_puts_files_back(ws):
     assert r["backup"].endswith("before-restore.zip")
 
 
+def submitted_with_events(ws):
+    fake_pdfs(ws)
+    ws.submit_app(EXAMPLE_APP, "2026-10-22")
+    ws.add_event(EXAMPLE_APP, {"stage": "screen", "date": "2026-10-25"})
+    return ws.apps_dir / EXAMPLE_APP / "tracking.yaml"
+
+
+def test_restore_keeps_the_current_tracking_history(ws):
+    tracking = submitted_with_events(ws)
+    (ws.apps_dir / EXAMPLE_APP / "tailor.yaml").write_text("headline: From the snapshot\n", encoding="utf-8")
+    snap = ws.create_snapshot("test")
+    ws.add_event(EXAMPLE_APP, {"stage": "rejected", "date": "2026-11-01"})
+    logged = tracking.read_text(encoding="utf-8")
+    (ws.apps_dir / EXAMPLE_APP / "tailor.yaml").write_text("headline: Edited later\n", encoding="utf-8")
+    r = ws.restore_snapshot(snap["name"])
+    assert tracking.read_text(encoding="utf-8") == logged  # what really happened stays
+    assert r["kept_tracking"] == 1
+    assert "From the snapshot" in (ws.apps_dir / EXAMPLE_APP / "tailor.yaml").read_text(encoding="utf-8")  # edits roll back
+
+
+def test_restore_brings_back_tracking_for_a_deleted_application(ws):
+    tracking = submitted_with_events(ws)
+    logged = tracking.read_text(encoding="utf-8")
+    snap = ws.create_snapshot("test")
+    ws.delete_app(EXAMPLE_APP)
+    r = ws.restore_snapshot(snap["name"])
+    assert tracking.read_text(encoding="utf-8") == logged
+    assert r["kept_tracking"] == 0
+    assert ws.track(ws.apps_dir / EXAMPLE_APP)["column"] == "screen"
+
+
 def test_restore_refuses_unknown_names(ws):
     with pytest.raises(build.BuildError):
         ws.restore_snapshot("../../etc.zip")

@@ -1690,6 +1690,7 @@ async function showSnapshots() {
       <div class="bd stack">
         <p class="muted" style="margin:0">A snapshot zips <code>master.yaml</code>, every application folder (without PDFs), the templates${S.init.example ? "" : ", <code>Local/</code> and <code>CLAUDE.local.md</code>"} into <code>snapshots/</code>. Take one before a big change.
         Restoring writes those files back over the current ones. It takes a new snapshot first, and files created after the snapshot are left alone.
+        Tracking history stays as it is now, because it records what really happened; a snapshot's copy comes back only for an application that has none, such as a deleted one.
         Separately, every save of <code>master.yaml</code> keeps the previous version in <code>snapshots/master-history/</code>.</p>
         <div class="row"><input id="snap-label" placeholder="Label (optional), e.g. before-big-rewrite" style="max-width:380px"><button class="primary" id="snap-create">Take snapshot</button></div>
       </div>
@@ -1712,11 +1713,12 @@ async function takeSnapshot(label = "") {
 }
 
 async function restoreSnapshot(name) {
-  if (!confirm(`Restore ${name}?\n\nThis writes the snapshot's files over your current master.yaml, applications and templates. A snapshot of the current state is taken first.`)) return;
+  if (!confirm(`Restore ${name}?\n\nThis writes the snapshot's files over your current master.yaml, applications and templates. Tracking history stays as it is now, unless an application has none (a deleted one coming back). A snapshot of the current state is taken first.`)) return;
   try {
     const r = await api("POST", `/api/snapshots/${enc(name)}/restore`);
     S.app = null;
-    toast(`Restored ${plural(r.restored, "file")}. Previous state saved as ${esc(r.backup)}.`, false, 7000);
+    const kept = r.kept_tracking ? ` Kept the current tracking history for ${plural(r.kept_tracking, "application")}.` : "";
+    toast(`Restored ${plural(r.restored, "file")}.${kept} Previous state saved as ${esc(r.backup)}.`, false, 7000);
     showSnapshots();
   } catch (e) {
     toast(esc(e.message), true);
