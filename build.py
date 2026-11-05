@@ -27,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -163,7 +164,8 @@ def rel(p):
 
 
 def slug(s):
-    return re.sub(r"[^A-Za-z0-9]+", "_", s).strip("_")
+    """A piece of a file name: letters and digits in any script, joined by underscores."""
+    return re.sub(r"[\W_]+", "_", unicodedata.normalize("NFC", s)).strip("_")
 
 
 def lint(text, where):
@@ -513,7 +515,7 @@ def build_master(typst, example):
     for s in walk_strings(data):
         lint(s, "master")
     out_dir = ROOT / "build" / "master"
-    out = out_dir / f"{slug(master['basics']['name'])}_Master.pdf"
+    out = out_dir / f"{slug(master['basics']['name']) or 'Applicant'}_Master.pdf"
     f = fill(render(typst, f"{DEFAULT_TEMPLATE}.typ", data, out, out_dir, "resume"))
     print(f"OK: {rel(out)} ({f['pages']} page{'s' if f['pages'] != 1 else ''})")
 
@@ -540,8 +542,8 @@ def submission(app):
 
 
 def output_names(master, tailor, app):
-    studio = slug((tailor.get("target") or {}).get("studio") or app.name)
-    name = slug(master["basics"]["name"])
+    studio = slug((tailor.get("target") or {}).get("studio") or "") or slug(app.name) or "Application"
+    name = slug(master["basics"]["name"]) or "Applicant"
     return f"{name}_Resume_{studio}.pdf", f"{name}_Cover_Letter_{studio}.pdf"
 
 
@@ -731,6 +733,8 @@ def print_track(example, args):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):  # a console that cannot show a non-Latin name still runs the command
+        sys.stdout.reconfigure(errors="backslashreplace")
     # --example works before or after the subcommand.
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--example", action="store_true", default=argparse.SUPPRESS,

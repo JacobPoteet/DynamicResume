@@ -14,7 +14,7 @@ import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import build
 from build import HOME, ROOT, BuildError
@@ -41,7 +41,7 @@ class Studio:
         p = Path(p).resolve()
         for prefix, base in (("build", ROOT / "build"), ("apps", self.ws.apps_dir)):
             try:
-                return f"/files/{prefix}/{p.relative_to(base.resolve()).as_posix()}?v={int(time.time() * 1000)}"
+                return f"/files/{prefix}/{quote(p.relative_to(base.resolve()).as_posix())}?v={int(time.time() * 1000)}"
             except ValueError:
                 pass
         raise BuildError(f"cannot serve {p}")

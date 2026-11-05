@@ -162,6 +162,27 @@ def test_fit_figures_use_the_real_page(typst, master, tailor, template, paper):
     assert layout["limit"] == pytest.approx(PAGE_PT[paper][1] - 36, abs=0.1)  # 0.5in bottom margin
 
 
+def test_a_non_latin_application_goes_through_preview_and_build(typst, ws):
+    from studio.server import Studio
+    name = ws.create_app("東京ゲームズ", "デザイナー", "ゲームをデザインする")
+    (ws.app_dir(name) / "cover-letter.md").write_text("A short letter.\n", encoding="utf-8")
+    studio = Studio(False)
+    try:
+        for kind in ("resume", "letter"):
+            preview = studio.preview(name, kind)
+            assert preview["ok"] and preview["pages"], preview
+        result = studio.finalize(name)
+        assert result["resume"].startswith("/files/apps/") and result["letter"]
+        pdfs = result["pdfs"]
+        assert pdfs["resume"]["file"].endswith("_Resume_東京ゲームズ.pdf")
+        assert pdfs["resume"]["exists"] and pdfs["letter"]["exists"]
+        assert not pdfs["resume"]["stale"] and not pdfs["letter"]["stale"]
+        assert build.load_yaml(REPO / "examples/data/master.yaml")["basics"]["name"] in pdf_text(ws.app_dir(name) / pdfs["resume"]["file"])
+    finally:
+        shutil.rmtree(studio.build_dir / name, ignore_errors=True)
+        shutil.rmtree(REPO / "build" / name, ignore_errors=True)
+
+
 def test_committed_demo_pdfs_are_current(built):
     resume, letter = build.output_names(build.load_yaml(REPO / "examples/data/master.yaml"),
                                         build.load_yaml(APP / "tailor.yaml"), APP)

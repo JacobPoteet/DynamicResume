@@ -1,9 +1,13 @@
 """Application folders: submitting, snapshots, round-trip YAML, gaps and studio notes."""
+import re
+import subprocess
+import sys
+
 import pytest
 import yaml
 
 import build
-from conftest import EXAMPLE_APP
+from conftest import EXAMPLE_APP, REPO
 
 
 def fake_pdfs(ws, name=EXAMPLE_APP, content=b"%PDF-1.7 sent"):
@@ -253,7 +257,62 @@ def test_create_app_never_picks_a_variant_with_its_partner(ws):
     build.resolve(ws.master(), t, False)  # the starter builds
 
 
-@pytest.mark.parametrize("name", ["../data", "a/b", "", ".hidden"])
+@pytest.mark.parametrize("name", ["../data", "a/b", "", ".hidden", "..", "a\\b", "東京/../x", "_x", "a:b"])
 def test_app_names_cannot_escape_the_folder(ws, name):
     with pytest.raises(build.BuildError):
         ws.app_dir(name)
+
+
+# ----- names in any script -----
+
+def test_a_non_latin_application_gets_a_usable_folder_and_pdf_names(ws):
+    name = ws.create_app("東京ゲームズ", "デザイナー", "ゲームをデザインする")
+    assert name == "東京ゲームズ-デザイナー"
+    app = ws.app_dir(name)
+    loaded = ws.load_app(name)
+    assert loaded["tailor"]["target"] == {"studio": "東京ゲームズ", "role": "デザイナー"}
+    assert "ゲームをデザインする" in loaded["listing"]
+    resume, letter = build.output_names(ws.master(), loaded["tailor"], app)
+    assert resume.endswith("_Resume_東京ゲームズ.pdf") and letter.endswith("_Cover_Letter_東京ゲームズ.pdf")
+    assert [a["name"] for a in ws.list_apps() if a["name"] == name] == [name]
+
+
+def test_non_latin_names_stay_apart(ws):
+    assert ws.create_app("東京", "Designer", "") != ws.create_app("大阪", "Designer", "")
+
+
+def test_a_non_latin_application_survives_a_snapshot(ws):
+    name = ws.create_app("東京ゲームズ", "デザイナー", "")
+    snap = ws.create_snapshot("test")
+    (ws.app_dir(name) / "listing.md").write_text("changed", encoding="utf-8")
+    ws.restore_snapshot(snap["name"])
+    assert "東京ゲームズ" in ws.load_app(name)["listing"]
+
+
+def test_a_name_of_only_symbols_gets_a_generated_folder(ws):
+    name = ws.create_app("!!!", "???", "")
+    assert re.fullmatch(r"app-[0-9a-f]{8}", name)
+    ws.app_dir(name)
+    with pytest.raises(build.BuildError, match="already exists"):
+        ws.create_app("!!!", "???", "")
+    resume, _ = build.output_names(ws.master(), {"target": {"studio": "!!!"}}, ws.apps_dir / name)
+    assert resume.endswith(f"_Resume_{name.replace('-', '_')}.pdf")
+
+
+def test_slug_keeps_every_script_and_never_leaves_a_pdf_name_empty(tmp_path):
+    assert build.slug("Alex Example!") == "Alex_Example"
+    assert build.slug("José Núñez") == "José_Núñez"
+    assert build.slug("東京 ゲームズ") == "東京_ゲームズ"
+    assert build.slug("!!!") == ""
+    master = {"basics": {"name": "???"}}
+    assert build.output_names(master, {"target": {"studio": "!!!"}}, tmp_path / "---") == \
+        ("Applicant_Resume_Application.pdf", "Applicant_Cover_Letter_Application.pdf")
+
+
+def test_new_prints_a_non_latin_name_on_a_console_that_cannot(home, monkeypatch):
+    monkeypatch.setenv("DYNAMICRESUME_HOME", str(home))
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+    r = subprocess.run([sys.executable, str(REPO / "build.py"), "new", "東京ゲームズ", "デザイナー"],
+                       capture_output=True, encoding="cp1252", errors="replace")
+    assert r.returncode == 0, r.stderr
+    assert (home / "applications" / "東京ゲームズ-デザイナー" / "tailor.yaml").exists()

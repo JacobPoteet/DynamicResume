@@ -51,7 +51,7 @@ In the app, "Create and draft with Claude" (or Redraft on the Listing tab) runs 
 
 When tailoring from a chat instead, follow these steps and also write `listing.yaml` so the app can show requirement coverage:
 
-1. Run `python build.py new "<studio>" "<role>" --listing -` with the listing on stdin. It creates `applications/<studio>-<role>/` with `listing.md` and a starter `tailor.yaml`.
+1. Run `python build.py new "<studio>" "<role>" --listing -` with the listing on stdin. It creates `applications/<studio>-<role>/` with `listing.md` and a starter `tailor.yaml`. Folder and PDF names keep letters and digits in any script; a name of only symbols gets a generated folder (`app-1a2b3c4d`).
 2. Check `data/studios.yaml` for notes on the studio (games played, people known) to use in the letter.
 3. Read `data/master.yaml`. Pick bullets by tag match against the listing, then priority (1 = strongest). Order bullets within each position by relevance to the listing, not by priority alone.
 4. Write `tailor.yaml`: a `headline`, ordered bullet ids per position, `skills_first`, optional `overrides` and `short`. Never select a bullet and its `variant_of` partner together.

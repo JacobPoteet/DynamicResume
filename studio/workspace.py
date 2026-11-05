@@ -4,10 +4,12 @@ YAML goes through ruamel's round-trip mode, so comments, quoting and layout in t
 hand-edited files survive edits made in the app.
 """
 import copy
+import hashlib
 import io
 import json
 import re
 import shutil
+import unicodedata
 import zipfile
 from datetime import datetime
 
@@ -21,7 +23,7 @@ from build import ROOT, BuildError
 from studio import tracking
 
 HISTORY_KEEP = 50
-APP_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+APP_NAME = re.compile(r"^[^\W_][\w.-]*$")  # \w: letters and digits in any script, plus _
 SNAP_NAME = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}[A-Za-z0-9_-]*\.zip$")
 DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 FROZEN = ("tailor.yaml", "cover-letter.md", "listing.md", "listing.yaml")  # copied next to the sent PDFs
@@ -167,6 +169,13 @@ def merge(old, new):
 
 def plain(node):
     return json.loads(json.dumps(node, default=str))
+
+
+def folder_name(studio, role):
+    """An application's folder name: lowercase letters and digits in any script, joined by
+    hyphens. A studio and role with neither (all symbols) get a generated name."""
+    text = unicodedata.normalize("NFC", f"{studio} {role}").lower()
+    return re.sub(r"[\W_]+", "-", text).strip("-") or f"app-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:8]}"
 
 
 def _places(master):
@@ -338,7 +347,7 @@ class Workspace:
         studio, role = (studio or "").strip(), (role or "").strip()
         if not studio or not role:
             raise BuildError("studio and role are both required")
-        name = re.sub(r"[^a-z0-9]+", "-", f"{studio} {role}".lower()).strip("-")
+        name = folder_name(studio, role)
         app = self.apps_dir / name
         if app.exists():
             raise BuildError(f"applications/{name} already exists")
