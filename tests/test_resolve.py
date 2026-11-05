@@ -106,6 +106,48 @@ def test_unknown_tailor_keys_warn(master, tailor):
     assert "tailor.yaml key 'colour' is not used by the build" in w
 
 
+def with_default_paper(master, paper):
+    m = copy.deepcopy(master)
+    m["basics"]["paper"] = paper
+    return m
+
+
+def test_paper_defaults_to_letter(master, tailor):
+    assert "paper" not in master["basics"] and "paper" not in tailor
+    assert build.resume_data(master, tailor)["paper"] == "us-letter"
+    assert build.letter_data(master, tailor, "Body.")["paper"] == "us-letter"
+
+
+def test_tailor_paper_applies_to_resume_and_letter_without_a_warning(master, tailor):
+    t = {**tailor, "paper": "a4"}
+    with build.collect_warnings() as w:
+        assert build.resume_data(master, t)["paper"] == "a4"
+        assert build.letter_data(master, t, "Body.")["paper"] == "a4"
+    assert w == []
+
+
+def test_master_basics_set_the_default_paper_and_a_tailor_wins(master, tailor):
+    m = with_default_paper(master, "a4")
+    assert build.resume_data(m, tailor)["paper"] == "a4"
+    assert build.letter_data(m, tailor, "Body.")["paper"] == "a4"
+    assert build.resolve(m, {}, True)["paper"] == "a4"  # the master build
+    assert build.resume_data(m, {**tailor, "paper": "letter"})["paper"] == "us-letter"
+
+
+@pytest.mark.parametrize("paper", ["legal", "A4", "us-letter", 4, ["a4"]])
+def test_an_invalid_tailor_paper_is_a_build_error(master, tailor, paper):
+    t = {**tailor, "paper": paper}
+    with pytest.raises(build.BuildError, match="unknown paper .* in tailor.yaml. Use one of: letter, a4"):
+        build.resume_data(master, t)
+    with pytest.raises(build.BuildError, match="unknown paper"):
+        build.letter_data(master, t, "Body.")
+
+
+def test_an_invalid_master_paper_fails_validation(master):
+    with pytest.raises(build.BuildError, match="unknown paper 'legal' in master basics"):
+        build.validate_master(with_default_paper(master, "legal"))
+
+
 def test_lint_flags_em_dashes_and_banned_phrases():
     with build.collect_warnings() as w:
         build.lint("We leverage synergy — always", "resume")

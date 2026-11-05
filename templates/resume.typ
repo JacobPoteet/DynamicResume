@@ -4,7 +4,7 @@
 #let d = json(sys.inputs.data)
 
 #set document(title: d.basics.name + " Resume", author: d.basics.name)
-#show: setup.with(size: 10pt)
+#show: setup.with(size: 10pt, paper: d.paper)
 #set par(leading: 0.5em)
 #set list(marker: [•], body-indent: 0.5em, indent: 0.3em, spacing: 0.4em)
 

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from build import ROOT, BuildError
-from studio.server import Handler
+from studio.server import Handler, init
 
 
 @pytest.fixture
@@ -15,6 +15,11 @@ def handler(ws):
 
 def serve(handler, rel):
     return Handler.output_file(handler, rel)
+
+
+def test_init_lists_the_paper_sizes():
+    out = init(SimpleNamespace(example=True), None, {})
+    assert out["papers"] == ["letter", "a4"] and out["default_paper"] == "letter"
 
 
 def test_serves_application_pdfs(handler, ws):

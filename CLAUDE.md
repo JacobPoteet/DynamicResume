@@ -74,6 +74,7 @@ All dates are `YYYY-MM` or `present`. Positions are listed newest first; that or
 basics:
   name, email, phone, location, linkedin      # all strings
   headline                                    # optional default; tailor.yaml usually sets its own
+  paper                                       # optional default page size: letter or a4; tailor.yaml can override it
 
 games:                                        # "Games" section
   - id, name, start, end
@@ -112,6 +113,7 @@ Tags in use: `leadership, mentorship, ui, game-ai, generative-ai, multiplayer, v
 ```yaml
 target: {studio: ..., role: ...}              # studio is used in output file names
 template: resume-inline | resume-games | resume   # optional, default resume-inline
+paper: letter | a4                            # optional, resume and letter; default master basics.paper, else letter
 headline: Senior Technical Designer | Quests, Encounters   # optional, one line under the name
 games: [game ids]                             # optional; absent = all, [] = none
 positions:                                    # only listed positions appear
@@ -125,7 +127,7 @@ short: [bullet ids]                           # use the master's `short` text fo
 cover_letter: {greeting, closing, date}       # all optional
 ```
 
-An unknown id, or a bullet selected with its `variant_of` partner, is a build error. An override or `short` id that matches no selected bullet, or a top-level key the build does not use, is a warning.
+An unknown id or `paper` value, or a bullet selected with its `variant_of` partner, is a build error. A redraft keeps the application's `paper`. An override or `short` id that matches no selected bullet, or a top-level key the build does not use, is a warning.
 
 ## tracking.yaml schema
 
@@ -185,5 +187,5 @@ CI (`.github/workflows/ci.yml`) runs ruff and `node --check`, the privacy check 
 - `templates/timeline.typ` (shared), `resume-games.typ`, `resume-inline.typ`: resumes grouped by company, so several roles at one company sit under one heading, each with its own dates (no company-wide span). `resume-inline` (the default) puts each game on its role line, skipping it on a role that shares the game of the role above, and repeating the company on every role after the first so a parser never reads a team name as the employer; `resume-games` adds a Games section with one undated line per game. Pick one with `template:` in `tailor.yaml`, in the app, or try one with `python build.py build <app> --template resume-games` (that trial PDF goes to `build/<app>/`, not the application folder). No template has a summary; an optional one-line headline sits under the name.
 - `templates/cover-letter.typ`: imports its colors, margins and header (name, headline, contact line) from `timeline.typ`, so the letter matches `resume-games` and `resume-inline`.
 - `docs/`: the GitHub Pages project page, served from `main` /docs with no build step (`index.html`, `assets/`, `img/`), plus the README screenshots. Screenshots come from the demo (`python build.py --example serve`); never use real data. Phrases meant to be public, like the author credit, go in `scripts/public-terms.txt` so the privacy check's `PRIVATE_TERMS` skip them.
-- `templates/common.typ`: gray header band, fonts and page setup for the older `resume.typ` only. All templates read `sys.inputs.data` (resolved JSON in `build/`).
+- `templates/common.typ`: gray header band, fonts and page setup for the older `resume.typ` only. All templates read `sys.inputs.data` (resolved JSON in `build/`) and take the page size from its `paper` field.
 - Keep resumes ATS friendly: single column, real text, no icons, standard section names, no multi-column rows outside the right-aligned dates, and Skills before Projects (a standard heading closes Experience, so parsers do not fold projects into the last job), section-heading letter spacing at 0.08em or less (wider spacing extracts as "E X P E R I E N C E"). Check with `pypdf`'s `extract_text()` after a template change. PDFs carry a title and author, and contact and project URLs are links.

@@ -59,7 +59,9 @@ def find_home():
 HOME = find_home()
 TEMPLATES = ROOT / "templates"
 DEFAULT_TEMPLATE = "resume-inline"
-TAILOR_KEYS = {"target", "template", "headline", "games", "positions", "skills_first", "skill_groups",
+PAPERS = {"letter": "us-letter", "a4": "a4"}  # the `paper` value -> Typst's name for that page
+DEFAULT_PAPER = "letter"
+TAILOR_KEYS = {"target", "template", "paper", "headline", "games", "positions", "skills_first", "skill_groups",
                "projects", "overrides", "short", "cover_letter"}
 BANNED = ["leverage", "passionate about", "drive innovation", "spearhead", "synergy", "cutting-edge", "excited to"]
 SUBMITTED = "submitted"  # folder in an application that holds the PDFs as they were sent
@@ -183,6 +185,7 @@ def validate_master(master):
     for key in ("basics", "positions"):
         if key not in master:
             raise BuildError(f"master is missing '{key}'")
+    page_size(master, {})
     seen = {}
     for owner in master["positions"] + master.get("projects", []):
         if "id" not in owner:
@@ -359,8 +362,17 @@ def resolve(master, tailor, master_mode):
     return {
         "basics": master["basics"], "headline": headline(master, tailor), "games": games,
         "positions": positions, "groups": groups, "skills": skills, "education": education,
-        "projects": projects, "meta": master_mode,
+        "projects": projects, "meta": master_mode, "paper": page_size(master, tailor),
     }
+
+
+def page_size(master, tailor):
+    """Typst's name for the page: the tailor's paper, else the master's default, else letter."""
+    tailored, default = tailor.get("paper"), master["basics"].get("paper")
+    for where, name in (("tailor.yaml", tailored), ("master basics", default)):
+        if name and str(name) not in PAPERS:
+            raise BuildError(f"unknown paper '{name}' in {where}. Use one of: {', '.join(PAPERS)}")
+    return PAPERS[str(tailored or default or DEFAULT_PAPER)]
 
 
 def headline(master, tailor):
@@ -382,6 +394,7 @@ def letter_data(master, tailor, text):
         "basics": master["basics"], "headline": headline(master, tailor), "date": cl.get("date"),
         "greeting": cl.get("greeting") or "Dear Hiring Team,",
         "closing": cl.get("closing") or "Sincerely,", "paragraphs": paragraphs,
+        "paper": page_size(master, tailor),
     }
     for s in walk_strings(data):
         lint(s, "cover letter")

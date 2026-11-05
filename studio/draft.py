@@ -173,7 +173,9 @@ class Drafts:
         tailor = out.get("tailor") or {}
         if not isinstance(tailor, dict):
             raise BuildError("the draft has no tailor object")
-        tailor = clean_tailor(master, tailor, warnings)
+        # The page size is the user's choice for this application, so a redraft keeps it.
+        current = self.ws._read_yaml(self.ws.app_dir(name) / "tailor.yaml") or {}
+        tailor = clean_tailor(master, {**tailor, "paper": current.get("paper") or tailor.get("paper")}, warnings)
         spec = out.get("listing") or {}
         known = {b["id"] for o in master["positions"] + master.get("projects", []) for b in o.get("bullets") or []}
         reqs = []
@@ -235,6 +237,11 @@ def clean_tailor(master, t, warnings):
     out = {"target": {k: str(v) for k, v in (t.get("target") or {}).items() if k in ("studio", "role")}}
     tpl = t.get("template") or build.DEFAULT_TEMPLATE
     out["template"] = tpl if tpl in build.templates() else build.DEFAULT_TEMPLATE
+    if t.get("paper"):
+        if str(t["paper"]) in build.PAPERS:
+            out["paper"] = str(t["paper"])
+        else:
+            warnings.append(f"dropped unknown paper '{t['paper']}'")
     if str(t.get("headline") or "").strip():
         out["headline"] = str(t["headline"]).strip()
 
