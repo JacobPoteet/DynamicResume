@@ -37,6 +37,8 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 **Impact check.** After every master save, on the Master page or with Save to master on the Resume tab, the app rebuilds each application into `build/check/` and lists the ones whose page count or fill changed, so lengthening a bullet or renaming a game never pushes one to two pages unnoticed. `python build.py check` does the same from the command line. An application's PDFs show as out of date only when what they would contain has changed, so editing a bullet it does not use leaves it current.
 
+**Edit the whole master in the app.** The Master page reads like a document: an outline on the left, each bullet as plain text until you click it, and search and tag filters for a long career. Forms cover contact details, education, games, skills, positions, projects, ids and `variant_of`, so the Raw YAML tab is there when you want it rather than when you have to. Banned phrases and em dashes are flagged as you type.
+
 **Recurring gaps.** Each draft lists what the listing asks for that your master cannot back up, with a short topic. Master, Gaps ranks those topics across every application, so you know which bullets are worth writing next.
 
 **Studio notes.** Notes about a studio (games of theirs you've played, people you know there) live in `data/studios.yaml`, are edited on the Listing tab, and go into the draft for the cover letter. Renaming a studio in the editor brings its notes and PDFs along.
@@ -53,7 +55,7 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 **Job details and saved leads.** Keep the posting's link, location, salary, source, referral, deadline and a contact on the Listing tab; they are saved in a plain `job.yaml` in the application's folder and stay editable after you submit. Cards show the link and deadline, and a card's history lists the rest. New application has Save for later, which needs only a studio, a role and optionally a link: it goes in a Saved column before Drafting, and Start drafting moves it on. Saved leads are left out of Stats.
 
-**Safe editing.** The app writes YAML with round-trip formatting, so comments and layout in your files survive. Every master save keeps the previous version, the app refuses to delete a bullet an application still uses, and snapshots zip everything before a redraft or delete. Restoring a snapshot rolls back your edits but keeps the current tracking history, since that records what really happened. Edit the files in a text editor or with Claude at any time; the app notices within a couple of seconds and reloads. If you are mid-edit it waits until you finish, and it never saves over an outside change without asking which version to keep.
+**Safe editing.** The app writes YAML with round-trip formatting, so comments and layout in your files survive. Every master save keeps the previous version, the app refuses to take away a bullet, position, project, game or skill group an application still uses, and snapshots zip everything before a redraft or delete. Restoring a snapshot rolls back your edits but keeps the current tracking history, since that records what really happened. Edit the files in a text editor or with Claude at any time; the app notices within a couple of seconds and reloads. If you are mid-edit it waits until you finish, and it never saves over an outside change without asking which version to keep.
 
 ## Quick start
 

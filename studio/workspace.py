@@ -196,6 +196,49 @@ def _selected(tailor):
     return out
 
 
+def _things(master):
+    """The ids a tailor can name besides bullets, by what they are."""
+    return {
+        "position": {p.get("id") for p in master.get("positions") or []},
+        "project": {p.get("id") for p in master.get("projects") or []},
+        "game": {g.get("id") for g in master.get("games") or []},
+        "skill group": {g.get("group") for g in master.get("skills") or []},
+    }
+
+
+def _named(tailor):
+    """What a tailor names besides bullets. Projects are a list of ids or a map keyed by id,
+    and listing either one gives its ids."""
+    return {
+        "position": set(tailor.get("positions") or []),
+        "project": set(tailor.get("projects") or []),
+        "game": set(tailor.get("games") or []),
+        "skill group": set(tailor.get("skill_groups") or []),
+    }
+
+
+def check_fields(data):
+    """Refuse what a form can leave blank or repeat, which validate_master has no need to catch
+    in a file written by hand: an empty name, or two entries with one id."""
+    required = (("position", "positions", "id", ("company", "title", "start", "end")),
+                ("project", "projects", "id", ("name",)),
+                ("game", "games", "id", ("name", "start", "end")),
+                ("education entry", "education", "school", ("start", "end")),
+                ("skill group", "skills", "group", ()))
+    for what, key, name, fields in required:
+        seen = set()
+        for item in data.get(key) or []:
+            label = item.get(name)
+            if not str(label if label is not None else "").strip():
+                raise BuildError(f"a {what} has no {name}")
+            if name != "school" and label in seen:
+                raise BuildError(f"two {key} use the {name} '{label}'")
+            seen.add(label)
+            for field in fields:
+                if not str(item.get(field) if item.get(field) is not None else "").strip():
+                    raise BuildError(f"{what} '{label}' needs {field}")
+
+
 # ---------- workspace ----------
 
 class Workspace:
@@ -230,20 +273,28 @@ class Workspace:
 
     def check_master(self, data):
         build.validate_master(data)
+        check_fields(data)
         with build.collect_warnings():
             build.resolve(data, {}, True)
         self.check_removals(data)
 
     def check_removals(self, data):
-        """Refuse a save that takes a bullet away from where an unsubmitted application uses
-        it (deleted, renamed, or moved to another position): that application could not build."""
+        """Refuse a save that takes away what an unsubmitted application names (a bullet deleted,
+        renamed or moved to another position; a position, project, game or skill group deleted or
+        renamed): that application could not build, or would quietly change. Also refuse removing
+        a game a position still points at, which would change the name that position prints."""
         try:
             old = self.master()
         except yaml.YAMLError:
             return  # the file on disk does not parse; saving is how it gets fixed
         now = _places(data)
         gone, ids = _places(old) - now, {i for _, i in now}
+        before, after = _things(old), _things(data)
+        gone_things = {kind: before[kind] - after[kind] for kind in before}
         used = {}
+        for p in data.get("positions") or []:
+            if p.get("game") in gone_things["game"]:
+                used.setdefault(f"game {p['game']}", []).append(f"position {p.get('id')}")
         for app in self.app_dirs():
             if build.submission(app):
                 continue
@@ -252,10 +303,14 @@ class Workspace:
             for owner, i in sorted(gone):
                 if (owner, i) in chosen or (i in overrides and i not in ids):
                     used.setdefault(i, []).append(app.name)
+            named = _named(t)
+            for kind, things in gone_things.items():
+                for i in sorted(things & named[kind]):
+                    used.setdefault(f"{kind} {i}", []).append(app.name)
         if used:
             names = "; ".join(f"{i} (used by {', '.join(apps)})" for i, apps in sorted(used.items()))
-            raise BuildError(f"Not saved: this takes away bullets that applications still use: {names}. "
-                             "Untick each one in those applications first, or put it back.")
+            raise BuildError(f"Not saved: this takes away things still in use: {names}. "
+                             "Remove each one where it is used first, or put it back.")
 
     def save_master(self, data):
         """Write plain master data, merged into the existing file to keep its comments."""
@@ -290,6 +345,18 @@ class Workspace:
             t = self._read_yaml(app / "tailor.yaml") or {}
             for i in set(t.get("overrides") or {}) | {i for _, i in _selected(t)}:
                 usage.setdefault(i, []).append(app.name)
+        return usage
+
+    def thing_usage(self):
+        """What each kind of non-bullet id is used by: {"position": {id: [application names]}, ...}."""
+        usage = {kind: {} for kind in ("position", "project", "game", "skill group")}
+        for app in self.app_dirs():
+            if build.submission(app):
+                continue
+            named = _named(self._read_yaml(app / "tailor.yaml") or {})
+            for kind, ids in named.items():
+                for i in ids:
+                    usage[kind].setdefault(i, []).append(app.name)
         return usage
 
     # ----- applications -----

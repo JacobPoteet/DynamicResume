@@ -118,7 +118,8 @@ def init(s, body, q):
     return {"example": s.example, "templates": build.templates(), "default_template": build.DEFAULT_TEMPLATE,
             "papers": list(build.PAPERS), "default_paper": build.DEFAULT_PAPER,
             "claude": bool(claude_path()), "data_home": None if s.example or HOME == ROOT else str(HOME),
-            "needs_master": not s.ws.master_path.exists(), "master_file": build.rel(s.ws.master_path)}
+            "needs_master": not s.ws.master_path.exists(), "master_file": build.rel(s.ws.master_path),
+            "em_dash": build.EM_DASH, "banned": build.BANNED}
 
 
 @route("GET", "/api/versions")
@@ -297,7 +298,7 @@ def draft_cancel(s, body, q, name):
 
 @route("GET", "/api/master")
 def get_master(s, body, q):
-    return {"master": s.ws.master(), "text": s.ws.master_text(), "usage": s.ws.bullet_usage()}
+    return {"master": s.ws.master(), "text": s.ws.master_text(), "usage": s.ws.bullet_usage(), "used": s.ws.thing_usage()}
 
 
 @route("PUT", "/api/master")
@@ -311,7 +312,7 @@ def put_master(s, body, q):
         with build.collect_warnings() as warnings:
             for text in build.walk_strings(master):
                 build.lint(text, "master")
-    return {"master": master, "text": s.ws.master_text(), "usage": s.ws.bullet_usage(),
+    return {"master": master, "text": s.ws.master_text(), "usage": s.ws.bullet_usage(), "used": s.ws.thing_usage(),
             "versions": s.versions(), "warnings": warnings}
 
 

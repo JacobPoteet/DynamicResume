@@ -1,6 +1,7 @@
 """The editor server's file route only serves previews and PDFs from build/ and the
 applications folder, and a port already in use stops the server with a clear message."""
 import json
+import re
 import socket
 import threading
 from types import SimpleNamespace
@@ -210,3 +211,24 @@ def test_the_save_route_refuses_to_rename_a_submitted_application(studio, ws):
     with pytest.raises(BuildError, match="Unsubmit it"):
         server.put_tailor(studio, {"tailor": t}, {}, EXAMPLE_APP)
     assert (app / resume).exists() and (app / "submitted" / resume).exists() and tailor_of(ws)["target"]["studio"] != "Lantern Works"
+
+
+def test_init_gives_the_editor_the_build_lint_rules(ws):
+    r = init(SimpleNamespace(example=True, ws=ws), {}, {})
+    assert r["em_dash"] == build.EM_DASH and r["banned"] == build.BANNED
+
+
+def test_the_master_route_reports_what_applications_name(ws):
+    r = server.get_master(SimpleNamespace(ws=ws), {}, {})
+    assert EXAMPLE_APP in r["used"]["position"]["pixel-forge-sr"]
+    assert set(r["used"]) == {"position", "project", "game", "skill group"}
+
+
+def test_the_app_scripts_share_one_scope_without_clashing():
+    """The scripts load as plain globals, so a repeated function name silently replaces the first."""
+    pattern = re.compile(r"^(?:async )?function (\w+)|^(?:const|let) (\w+)", re.M)
+    names = []
+    for script in ("app.js", "tracker.js"):
+        text = (ROOT / "studio" / "static" / script).read_text(encoding="utf-8")
+        names += [a or b for a, b in pattern.findall(text)]
+    assert sorted(n for n in set(names) if names.count(n) > 1) == []

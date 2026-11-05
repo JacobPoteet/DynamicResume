@@ -1497,7 +1497,13 @@ ON_OUTSIDE_EDIT.blocked = () =>
 
 // Edits collect in M.draft and are written together with Save. The server merges them into
 // master.yaml without disturbing its comments, and keeps the previous file in master-history.
-const M = { base: null, draft: null, text: "", rawText: null, usage: {}, mode: "bullets", open: {}, saving: false, error: "" };
+const M = {
+  base: null, draft: null, text: "", rawText: null, usage: {}, used: {}, mode: "bullets", saving: false, error: "",
+  open: {},                                 // sections with their details form showing
+  exp: new Set(),                           // ids of the bullets expanded for editing
+  closed: new Set(["basics", "education", "games", "skills"]),  // collapsed sections
+  q: "", tag: "", show: "", active: "",
+};
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const masterDirty = () => !!M.draft && (JSON.stringify(M.draft) !== JSON.stringify(M.base) || (M.rawText != null && M.rawText !== M.text));
 
@@ -1508,6 +1514,7 @@ async function loadMaster() {
   M.text = r.text;
   M.rawText = null;
   M.usage = r.usage;
+  M.used = r.used;
 }
 
 async function showMaster(mode = "bullets") {
@@ -1519,13 +1526,12 @@ async function showMaster(mode = "bullets") {
     return;
   }
   M.mode = mode;
-  const count = [...M.draft.positions, ...(M.draft.projects || [])].reduce((n, o) => n + (o.bullets || []).length, 0);
   view(`<div class="master">
-    <div class="page" style="padding-bottom:20px">
+    <div class="page ${mode === "bullets" ? "m-page" : ""}" style="padding-bottom:20px">
       <div class="row" style="margin-bottom:14px">
         <h1>Master</h1>
-        <nav class="tabs"><a href="#/master" class="${mode === "bullets" ? "on" : ""}">Bullets</a><a href="#/master/raw" class="${mode === "raw" ? "on" : ""}">Raw YAML</a><a href="#/master/gaps" class="${mode === "gaps" ? "on" : ""}">Gaps</a></nav>
-        <span class="grow"></span><span class="muted" style="font-size:12px">${esc(S.init.example ? "examples/data/master.yaml" : "data/master.yaml")} · ${plural(count, "bullet")}</span>
+        <nav class="tabs"><a href="#/master" class="${mode === "bullets" ? "on" : ""}">Edit</a><a href="#/master/raw" class="${mode === "raw" ? "on" : ""}">Raw YAML</a><a href="#/master/gaps" class="${mode === "gaps" ? "on" : ""}">Gaps</a></nav>
+        <span class="grow"></span><span class="muted" style="font-size:12px">${esc(S.init.example ? "examples/data/master.yaml" : "data/master.yaml")} · <span id="m-total"></span></span>
         <button class="small" data-mact="check" title="Rebuild every unsubmitted application into build/check/ and report what changed">Check applications</button>
       </div>
       <section class="card" id="impact" hidden></section>
@@ -1540,24 +1546,51 @@ async function showMaster(mode = "bullets") {
   renderImpact();
 }
 
+const owners = () => [...M.draft.positions, ...(M.draft.projects || [])];
+
 function renderMasterBody() {
   const body = $("#mbody");
+  if (!body) return;
+  $("#m-total").textContent = plural(owners().reduce((n, o) => n + (o.bullets || []).length, 0), "bullet");
   if (M.mode === "gaps") return renderGaps();
   if (M.mode === "raw") {
     body.innerHTML = `<p class="muted" style="margin:0;font-size:13px">The whole file, comments included. Saving checks that it parses and builds before writing,
-      and refuses to remove, rename or move a bullet an unsubmitted application uses.</p>
+      and refuses to take away anything an unsubmitted application uses.</p>
       <textarea class="raw" id="raw-master" spellcheck="false">${esc(M.rawText ?? M.text)}</textarea>`;
     return updateSavebar();
   }
-  const tags = new Set();
-  for (const o of [...M.draft.positions, ...(M.draft.projects || [])]) for (const b of o.bullets || []) (b.tags || []).forEach((t) => tags.add(t));
-  body.innerHTML = `<datalist id="tag-list">${[...tags].sort().map((t) => `<option value="${esc(t)}">`).join("")}</datalist>
-    <nav class="jump" id="jump" aria-label="Jump to a section"></nav>
-    ${M.draft.positions.map((o, i) => ownerCard("positions", o, i)).join("")}
-    ${(M.draft.projects || []).map((o, i) => ownerCard("projects", o, i)).join("")}
-    ${skillsCard()}`;
+  const base = baseBullets();
+  body.innerHTML = `<datalist id="tag-list">${allTags().map((t) => `<option value="${esc(t)}">`).join("")}</datalist>
+    <div class="m-layout">
+      <nav class="m-rail" id="jump" aria-label="Sections of the master"></nav>
+      <div class="m-main">
+        ${masterFilters()}
+        <div class="m-group">
+          ${contactCard()}${educationCard()}${gamesCard()}${skillsCard()}
+        </div>
+        <div class="m-group">
+          <div class="m-group-head"><h2>Positions</h2><span class="faint">newest first, the order the resume prints them</span><span class="grow"></span><button class="small" data-mact="add-owner" data-kind="positions">Add position</button></div>
+          ${M.draft.positions.map((o, i) => ownerCard("positions", o, i, base)).join("")}
+        </div>
+        <div class="m-group">
+          <div class="m-group-head"><h2>Projects</h2><span class="grow"></span><button class="small" data-mact="add-owner" data-kind="projects">Add project</button></div>
+          ${(M.draft.projects || []).map((o, i) => ownerCard("projects", o, i, base)).join("")}
+        </div>
+      </div>
+    </div>`;
+  growAll();
+  applyFilter();
   updateSavebar();
 }
+
+// Text boxes grow to fit, so a long bullet never scrolls inside its own box.
+function grow(el) {
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight + 2}px`;
+}
+const growAll = (root = document) => root.querySelectorAll("textarea[data-auto]").forEach(grow);
+
+const allTags = () => [...new Set(owners().flatMap((o) => (o.bullets || []).flatMap((b) => b.tags || [])))].sort();
 
 // Bullets keyed by id, as JSON, for spotting which rows differ from the saved file.
 function baseBullets() {
@@ -1574,7 +1607,7 @@ async function renderGaps() {
   const { gaps } = await api("GET", "/api/gaps");
   if (M.mode !== "gaps" || $("#mbody") !== body) return;
   body.innerHTML = `<p class="muted" style="margin:0;font-size:13px">What listings asked for that the master could not back up, from every application's listing.yaml,
-      most common first. If you have done one of these, add a bullet for it on the Bullets tab.</p>
+      most common first. If you have done one of these, add a bullet for it on the Edit tab.</p>
     ${gaps.length ? gaps.map((g) => `<section class="card"><div class="hd"><strong class="grow">${esc(g.topic || g.items[0].text)}</strong>
         <span class="pill ${g.apps.length > 1 ? "warn" : "plain"}">${plural(g.apps.length, "application")}</span></div>
       <ul class="bd gap-items">${g.items.map((i) => `<li><a href="#/app/${enc(i.app)}/listing">${esc(i.studio)}</a>: ${esc(i.text)}</li>`).join("")}</ul></section>`).join("")
@@ -1616,81 +1649,329 @@ function renderImpact() {
     ${rows.some((r) => !r.before) ? `<div class="bd faint" style="font-size:12px;padding-top:0">"No earlier build" means the application has not been built since fit tracking was added; Build PDFs once to set a baseline.</div>` : ""}`;
 }
 
+// ----- master page: finding bullets -----
+
+function masterFilters() {
+  const tags = allTags().map((t) => `<option value="${esc(t)}" ${t === M.tag ? "selected" : ""}>${esc(t)}</option>`).join("");
+  const shows = [["", "All bullets"], ["unused", "Not used by an application"], ["noshort", "No short version"], ["unsaved", "Unsaved changes"]];
+  return `<div class="m-tools">
+    <input type="search" data-mfilter="q" value="${esc(M.q)}" placeholder="Search bullets" aria-label="Search bullets by text, id or tag">
+    <select data-mfilter="tag" aria-label="Filter by tag"><option value="">All tags</option>${tags}</select>
+    <select data-mfilter="show" aria-label="Show">${shows.map(([v, l]) => `<option value="${v}" ${v === M.show ? "selected" : ""}>${l}</option>`).join("")}</select>
+    <span class="muted" id="m-count" role="status"></span>
+    <button class="ghost small" data-mact="collapse-all" id="m-collapse"></button>
+  </div>`;
+}
+
+function bulletMatches(b, base) {
+  const hay = `${b.text} ${b.short || ""} ${b.id} ${(b.tags || []).join(" ")}`.toLowerCase();
+  if (!M.q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w))) return false;
+  if (M.tag && !(b.tags || []).includes(M.tag)) return false;
+  if (M.show === "unused" && (M.usage[b.id] || []).length) return false;
+  if (M.show === "noshort" && b.short) return false;
+  if (M.show === "unsaved" && !bulletDirty(b, base)) return false;
+  return true;
+}
+
+// Hides what does not match without rebuilding the page, so typing keeps the search box's focus.
+function applyFilter() {
+  const main = $(".m-main");
+  if (!main) return;
+  const on = !!(M.q.trim() || M.tag || M.show);
+  const base = baseBullets();
+  main.classList.toggle("m-filtering", on);
+  let shown = 0;
+  let total = 0;
+  main.querySelectorAll("[data-kind]").forEach((card) => {
+    const o = M.draft[card.dataset.kind][Number(card.dataset.oi)];
+    let hits = 0;
+    card.querySelectorAll("[data-bi]").forEach((row) => {
+      const hit = bulletMatches(o.bullets[Number(row.dataset.bi)], base);
+      row.hidden = on && !hit;
+      if (hit) hits++;
+      total++;
+    });
+    shown += hits;
+    card.hidden = on && !hits;
+  });
+  main.querySelectorAll(".m-group").forEach((g) => (g.hidden = on && !g.querySelector("[data-kind]:not([hidden])")));
+  $("#m-count").textContent = on ? `${shown} of ${plural(total, "bullet")}` : "";
+  const collapse = $("#m-collapse");
+  collapse.hidden = on;
+  collapse.textContent = ownerKeys().every((k) => M.closed.has(k)) ? "Expand all" : "Collapse all";
+}
+
+const ownerKey = (kind, o) => `${kind}:${o.id}`;
+const ownerKeys = () => ["positions", "projects"].flatMap((kind) => (M.draft[kind] || []).map((o) => ownerKey(kind, o)));
+
+// ----- master page: the outline -----
+
 function renderJump() {
   const nav = $("#jump");
   if (!nav) return;
   const companies = M.draft.positions.map((o) => o.company);
-  const ownerDirty = (kind, o, oi) => JSON.stringify(o) !== JSON.stringify((M.base[kind] || [])[oi]);
-  const btn = (target, label, dirty) => `<button class="${dirty ? "dirty" : ""}" data-mact="jump" data-target="${target}"${dirty ? ` title="Unsaved changes"` : ""}>${esc(label)}</button>`;
-  nav.innerHTML = `<span class="muted" style="font-size:12px">Jump to</span>
-    ${M.draft.positions.map((o, i) => btn(`m-positions-${i}`,
-      companies.filter((c) => c === o.company).length > 1 ? `${o.company} (${[o.title, o.team].filter(Boolean).join(", ")})` : o.company, ownerDirty("positions", o, i))).join("")}
-    ${(M.draft.projects || []).map((o, i) => btn(`m-projects-${i}`, o.name, ownerDirty("projects", o, i))).join("")}
-    ${btn("m-skills", "Skills", JSON.stringify(M.draft.skills) !== JSON.stringify(M.base.skills))}`;
+  const baseOwner = (kind, o) => (M.base[kind] || []).find((p) => p.id === o.id);
+  const ownerDirty = (kind, o) => JSON.stringify(o) !== JSON.stringify(baseOwner(kind, o));
+  const link = (target, key, label, dirty, n) => `<button class="m-link ${target === M.active ? "on" : ""}" data-mact="jump" data-target="${target}" data-key="${esc(key)}"${dirty ? ` title="Unsaved changes"` : ""}>
+      <span class="m-link-name">${esc(label)}</span>${dirty ? `<span class="m-dot" aria-label="Unsaved changes"></span>` : ""}${n != null ? `<span class="m-n">${n}</span>` : ""}</button>`;
+  const section = (key, label) => link(`m-${key}`, key, label, JSON.stringify(M.draft[key] ?? null) !== JSON.stringify(M.base[key] ?? null));
+  const posLabel = (o) => (companies.filter((c) => c === o.company).length > 1 ? `${o.company} (${[o.title, o.team].filter(Boolean).join(", ")})` : o.company) || "New position";
+  nav.innerHTML = `<div class="m-rail-head">Profile</div>
+    ${section("basics", "Contact")}${section("education", "Education")}${section("games", "Games")}${section("skills", "Skills")}
+    <div class="m-rail-head">Positions</div>
+    ${M.draft.positions.map((o, i) => link(`m-positions-${i}`, ownerKey("positions", o), posLabel(o), ownerDirty("positions", o), (o.bullets || []).length)).join("")}
+    <div class="m-rail-head">Projects</div>
+    ${(M.draft.projects || []).map((o, i) => link(`m-projects-${i}`, ownerKey("projects", o), o.name || "New project", ownerDirty("projects", o), (o.bullets || []).length)).join("")}`;
 }
 
-const OWNER_FIELDS = {
-  positions: ["title", "team", "company", "product", "engine", "location", "start", "end"],
-  projects: ["name", "url", "summary"],
+// The outline follows the page, marking the section at the top of the view.
+let spyQueued = false;
+window.addEventListener("scroll", () => {
+  if (spyQueued || !$("#jump")) return;
+  spyQueued = true;
+  requestAnimationFrame(() => {
+    spyQueued = false;
+    const nav = $("#jump");
+    if (!nav) return;
+    let active = "";
+    for (const sec of document.querySelectorAll(".m-main section[id]")) {
+      if (!sec.hidden && sec.getBoundingClientRect().top <= 130) active = sec.id;
+    }
+    if (active === M.active) return;
+    M.active = active;
+    nav.querySelectorAll(".m-link").forEach((l) => l.classList.toggle("on", l.dataset.target === active));
+  });
+}, { passive: true });
+
+// ----- master page: small shared pieces -----
+
+const reorder = (act, i, n, what) => `<span class="reorder">
+    <button class="ghost small" data-mact="${act}" data-dir="-1" aria-label="Move ${esc(what)} up" title="Move up" ${i === 0 ? "disabled" : ""}>↑</button>
+    <button class="ghost small" data-mact="${act}" data-dir="1" aria-label="Move ${esc(what)} down" title="Move down" ${i === n - 1 ? "disabled" : ""}>↓</button>
+  </span>`;
+
+function sectionCard(key, id, title, summary, inner) {
+  const closed = M.closed.has(key);
+  return `<section class="card m-sec ${closed ? "closed" : ""}" id="${id}" data-sec="${esc(key)}">
+    <div class="hd"><button class="m-tog" data-mact="toggle" aria-expanded="${!closed}">
+      <span class="m-chev" aria-hidden="true"></span><span class="m-head"><strong>${esc(title)}</strong><span class="m-sub muted">${esc(summary)}</span></span></button></div>
+    <div class="m-body">${inner}</div>
+  </section>`;
+}
+
+// Sets a field, dropping it when emptied so the file never gains `team: ''`, and keeping
+// the file's usual key order when a field comes back.
+function setField(o, key, value, order, required) {
+  if (!value && !required) {
+    delete o[key];
+    return;
+  }
+  const isNew = !(key in o);
+  o[key] = value;
+  if (!isNew) return;
+  const rank = (k) => { const i = order.indexOf(k); return i < 0 ? order.length : i; };
+  const sorted = Object.entries(o).sort((a, b) => rank(a[0]) - rank(b[0]));
+  for (const [k] of sorted) delete o[k];
+  for (const [k, v] of sorted) o[k] = v;
+}
+
+const ID_RULE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
+const slug = (text, words = 5) => String(text).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").slice(0, words).join("-");
+const uniqueId = (wanted, taken) => {
+  let id = wanted;
+  for (let n = 2; taken.has(id); n++) id = `${wanted}-${n}`;
+  return id;
 };
 
-function ownerCard(kind, o, oi) {
-  const key = `${kind}:${o.id}`;
-  const head = kind === "positions" ? `${o.company} · ${[o.title, o.team].filter(Boolean).join(", ")}` : `Project: ${o.name}`;
-  const sub = kind === "positions" ? `${o.start} to ${o.end}${o.product ? ` · ${o.product}` : ""}` : o.url || "";
-  const prefix = commonPrefix((o.bullets || []).map((b) => b.id));
-  const base = baseBullets();
-  return `<section class="card" id="m-${kind}-${oi}" data-kind="${kind}" data-oi="${oi}">
-    <div class="hd"><div class="grow"><strong>${esc(head)}</strong><div class="muted" style="font-size:12px">${esc(sub)}</div></div>
-      <code class="faint">${esc(o.id)}</code>
-      <button class="ghost small" data-mact="details" data-key="${esc(key)}" aria-expanded="${!!M.open[key]}">${M.open[key] ? "Hide details" : "Details"}</button></div>
-    ${M.open[key] ? `<div class="bd target" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
-      ${OWNER_FIELDS[kind].map((f) => `<label class="field">${f}<input data-of="${f}" value="${esc(o[f])}"></label>`).join("")}</div>` : ""}
-    ${(o.bullets || []).map((b, bi) => {
-      const used = M.usage[b.id] || [];
-      return `<div class="mb ${bulletDirty(b, base) ? "dirty" : ""}" data-bi="${bi}">
-        <textarea data-bf="text" rows="2">${esc(b.text)}</textarea>
-        <input class="short-in" data-bf="short" value="${esc(b.short || "")}" placeholder="Short text (optional): a tighter version, for when a page is one line over">
-        <div class="row2">
-          <code title="Bullet id, used by applications${b.variant_of ? `. Another version of ${esc(b.variant_of)} (variant_of, set in Raw YAML)` : ""}">${esc(b.id)}${b.variant_of ? ` ↔ ${esc(b.variant_of)}` : ""}</code>
-          <input data-bf="tags" list="tag-list" value="${esc((b.tags || []).join(", "))}" placeholder="tags, comma separated">
-          <select data-bf="priority" title="1 = strongest">${[1, 2, 3].map((p) => `<option value="${p}" ${(b.priority ?? 3) === p ? "selected" : ""}>p${p}</option>`).join("")}</select>
-          <span class="row">
-            <span class="pill ${used.length ? "" : "plain"}" title="${esc(used.join(", ") || "Not used by any application")}">${used.length ? `in ${plural(used.length, "app")}` : "unused"}</span>
-            <button class="ghost small danger" data-mact="del" aria-label="Delete bullet ${esc(b.id)}">Delete</button>
-          </span>
-        </div>
-      </div>`;
-    }).join("")}
-    <div class="mb" data-add>
-      <textarea data-add="text" rows="2" placeholder="New bullet: what you did, with a concrete result"></textarea>
-      <div class="row2">
-        <input data-add="id" value="${esc(prefix)}" placeholder="unique-id" title="Short, stable id. Never rename it once an application uses it.">
-        <input data-add="tags" list="tag-list" placeholder="tags, comma separated">
-        <select data-add="priority"><option value="1">p1</option><option value="2" selected>p2</option><option value="3">p3</option></select>
-        <button class="small" data-mact="add">Add bullet</button>
-      </div>
+const FIELD_ORDER = {
+  bullets: ["id", "text", "short", "variant_of", "tags", "priority"],
+  positions: ["id", "company", "product", "engine", "game", "title", "team", "location", "start", "end", "bullets"],
+  projects: ["id", "name", "url", "summary", "bullets"],
+  basics: ["name", "email", "phone", "location", "linkedin", "headline", "paper"],
+  games: ["id", "name", "start", "end"],
+  education: ["school", "credential", "location", "start", "end"],
+};
+const REQUIRED = { positions: ["company", "title", "start", "end"], projects: ["name"], basics: ["name"], games: ["name", "start", "end"], education: ["school", "start", "end"] };
+const FIELD_LABEL = {
+  company: "Company", title: "Title", team: "Team", product: "Product", engine: "Engine", location: "Location", start: "Start", end: "End",
+  name: "Name", url: "Link", summary: "Summary", email: "Email", phone: "Phone", linkedin: "LinkedIn", headline: "Default headline",
+  school: "School", credential: "Credential",
+};
+const DATE_HINT = "YYYY-MM or present";
+const fieldInput = (scope, o, f) => `<label class="field"><span>${FIELD_LABEL[f]}${REQUIRED[scope].includes(f) ? "" : ` <span class="faint">optional</span>`}</span>
+    <input data-sf="${scope}" data-f="${f}" value="${esc(o[f])}"${f === "start" || f === "end" ? ` placeholder="${DATE_HINT}"` : ""}></label>`;
+
+// An id that nothing depends on can change; one an application uses stays put, because the
+// application refers to it.
+function idInput(kind, value, apps, what) {
+  return apps.length
+    ? `<div class="field">ID <code class="m-id" title="Used by ${esc(apps.join(", "))}, so it cannot change">${esc(value)}</code></div>`
+    : `<label class="field">ID <input data-idf="${kind}" value="${esc(value)}" spellcheck="false" title="${esc(what)}"></label>`;
+}
+
+// ----- master page: bullets -----
+
+// The template wraps a bullet at about this many characters. Close enough to compare bullets;
+// a real build reports the exact fit.
+const CHARS_PER_LINE = 120;
+const lineCount = (text) => Math.max(1, Math.ceil(text.length / CHARS_PER_LINE));
+
+function lintText(text) {
+  const out = [];
+  if (text.includes(S.init.em_dash)) out.push("em dash");
+  const low = text.toLowerCase();
+  for (const phrase of S.init.banned || []) if (low.includes(phrase)) out.push(`"${phrase}"`);
+  return out;
+}
+const lintPills = (text) => lintText(text || "").map((w) => `<span class="pill warn">${esc(w)}</span>`).join(" ");
+const textHint = (text) => (text ? `<span>About ${plural(lineCount(text), "line")} on the page</span> ${lintPills(text)}` : "");
+
+function masterRow(kind, o, b, bi, base) {
+  const prio = b.priority ?? 3;
+  const dirty = bulletDirty(b, base) ? "dirty" : "";
+  const n = (o.bullets || []).length;
+  if (!M.exp.has(b.id)) {
+    const tags = (b.tags || []).join(", ");
+    return `<div class="mb ${dirty}" data-bi="${bi}" data-bid="${esc(b.id)}">
+      <button class="mb-open" data-mact="b-open" aria-expanded="false" title="Edit this bullet">
+        <span class="mb-text">${b.text ? esc(b.text) : `<span class="faint">No text yet</span>`}</span>
+        <span class="mb-meta"><span class="mb-p mb-p${prio}">p${prio}</span>${tags ? ` · ${esc(tags)}` : ""} ${lintPills(`${b.text} ${b.short || ""}`)}</span>
+      </button>
+      ${reorder("b-move", bi, n, b.id)}
+    </div>`;
+  }
+  const used = M.usage[b.id] || [];
+  const others = (o.bullets || []).filter((x) => x !== b);
+  const clip = (t) => (t.length > 60 ? `${t.slice(0, 60)}…` : t);
+  const targets = [...M.draft.positions.map((p) => ["positions", p]), ...(M.draft.projects || []).map((p) => ["projects", p])].filter(([, p]) => p !== o);
+  return `<div class="mb open ${dirty}" data-bi="${bi}" data-bid="${esc(b.id)}">
+    <label class="field">Text<textarea data-bf="text" data-auto rows="2" placeholder="What you did, with a concrete result">${esc(b.text)}</textarea></label>
+    <div class="mb-hint" data-hint="text">${textHint(b.text)}</div>
+    <label class="field"><span>Short version <span class="faint">optional, for when a page runs a line over</span></span><textarea data-bf="short" data-auto rows="1">${esc(b.short || "")}</textarea></label>
+    <div class="mb-hint" data-hint="short">${textHint(b.short || "")}</div>
+    <div class="mb-grid">
+      <label class="field"><span>Tags <span class="faint">comma separated</span></span><input data-bf="tags" list="tag-list" value="${esc((b.tags || []).join(", "))}"></label>
+      <label class="field">Priority<select data-bf="priority" title="1 = strongest">${[1, 2, 3].map((p) => `<option value="${p}" ${prio === p ? "selected" : ""}>p${p}</option>`).join("")}</select></label>
+    </div>
+    <div class="mb-grid mb-grid-3">
+      ${idInput("bullet", b.id, used, "Short and stable. Applications refer to a bullet by its id.")}
+      <label class="field">Another version of<select data-bf="variant"><option value="">Nothing</option>
+        ${others.map((x) => `<option value="${esc(x.id)}" ${b.variant_of === x.id ? "selected" : ""}>${esc(clip(x.text || x.id))}</option>`).join("")}</select></label>
+      <label class="field">Move to<select data-mmove><option value="">Choose a section</option>
+        ${targets.map(([k, p]) => `<option value="${k}:${esc(p.id)}">${esc(k === "positions" ? `${p.company}, ${p.title}` : p.name)}</option>`).join("")}</select></label>
+    </div>
+    <div class="row mb-foot">
+      <span class="muted">${used.length ? `Used by ${esc(used.join(", "))}` : "Not used by an application"}</span>
+      <span class="grow"></span>
+      <button class="ghost small danger" data-mact="del" aria-label="Delete bullet ${esc(b.id)}">Delete</button>
+      <button class="small" data-mact="b-close">Done</button>
+    </div>
+  </div>`;
+}
+
+const rowOwner = (row) => {
+  const card = row.closest("[data-kind]");
+  return { kind: card.dataset.kind, o: M.draft[card.dataset.kind][Number(card.dataset.oi)] };
+};
+
+// Redraws one row, which keeps the scroll position and everything else on the page as it is.
+function redrawRow(row, focus) {
+  const { kind, o } = rowOwner(row);
+  const bi = Number(row.dataset.bi);
+  row.insertAdjacentHTML("beforebegin", masterRow(kind, o, o.bullets[bi], bi, baseBullets()));
+  const next = row.previousElementSibling;
+  row.remove();
+  growAll(next);
+  if (focus) next.querySelector(focus)?.focus();
+  return next;
+}
+
+// A bullet and the versions tied to it by variant_of, which must stay in one section.
+function variantFamily(o, b) {
+  return o.bullets.filter((x) => x === b || x.variant_of === b.id || b.variant_of === x.id);
+}
+
+// ----- master page: sections -----
+
+const OWNER_FIELDS = {
+  positions: ["company", "title", "team", "product", "engine", "location", "start", "end"],
+  projects: ["name", "url", "summary"],
+};
+const ownerHead = (kind, o) => (kind === "positions" ? `${o.company || "New position"}, ${[o.title, o.team].filter(Boolean).join(", ")}` : o.name || "New project");
+const ownerSub = (kind, o) => (kind === "positions" ? `${o.start || "?"} to ${o.end || "?"}${o.product ? `, ${o.product}` : ""}` : o.url || "");
+
+function ownerCard(kind, o, oi, base) {
+  const key = ownerKey(kind, o);
+  const closed = M.closed.has(key);
+  const open = !!M.open[key];
+  const list = M.draft[kind];
+  const single = kind === "positions" ? "position" : "project";
+  const gameSel = kind === "positions" ? `<label class="field"><span>Game <span class="faint">optional</span></span><select data-sf="${kind}" data-f="game"><option value="">None</option>
+      ${(M.draft.games || []).map((g) => `<option value="${esc(g.id)}" ${o.game === g.id ? "selected" : ""}>${esc(g.name || g.id)}</option>`).join("")}</select></label>` : "";
+  const apps = (M.used[single] || {})[o.id] || [];
+  return `<section class="card m-sec ${closed ? "closed" : ""}" id="m-${kind}-${oi}" data-kind="${kind}" data-oi="${oi}" data-sec="${esc(key)}">
+    <div class="hd"><button class="m-tog" data-mact="toggle" aria-expanded="${!closed}">
+        <span class="m-chev" aria-hidden="true"></span>
+        <span class="m-head"><strong data-owner-head>${esc(ownerHead(kind, o))}</strong><span class="m-sub muted" data-owner-sub>${esc(ownerSub(kind, o))}</span></span></button>
+      ${reorder("owner-move", oi, list.length, single)}
+      <button class="ghost small" data-mact="details" aria-expanded="${open}">${open ? "Hide details" : "Edit details"}</button></div>
+    <div class="m-body">
+      ${open ? `<div class="m-details">
+        ${OWNER_FIELDS[kind].map((f) => fieldInput(kind, o, f)).join("")}
+        ${gameSel}
+        ${idInput(single, o.id, apps, "Short and stable. Applications refer to it by this id.")}
+        <div class="row m-details-foot"><span class="muted">${apps.length ? `Used by ${esc(apps.join(", "))}` : "Not used by an application"}</span><span class="grow"></span>
+          <button class="ghost small danger" data-mact="owner-del">Delete ${single}</button></div>
+      </div>` : ""}
+      ${(o.bullets || []).map((b, bi) => masterRow(kind, o, b, bi, base)).join("")}
+      <div class="mb-add"><button class="ghost small" data-mact="add">Add bullet</button></div>
     </div>
   </section>`;
 }
 
-function commonPrefix(ids) {
-  const parts = ids.map((id) => id.split("-")[0]);
-  return parts.length && parts.every((p) => p === parts[0]) ? `${parts[0]}-` : "";
+function contactCard() {
+  const b = M.draft.basics;
+  const paper = `<label class="field"><span>Default paper <span class="faint">optional</span></span><select data-sf="basics" data-f="paper"><option value="">${esc(S.init.default_paper)} (the default)</option>
+    ${S.init.papers.map((p) => `<option value="${esc(p)}" ${b.paper === p ? "selected" : ""}>${esc(p)}</option>`).join("")}</select></label>`;
+  return sectionCard("basics", "m-basics", "Contact", [b.name, b.email].filter(Boolean).join(", "), `<div class="m-details">
+    ${["name", "email", "phone", "location", "linkedin", "headline"].map((f) => fieldInput("basics", b, f)).join("")}${paper}</div>`);
+}
+
+function itemRow(list, i, n, inner, what) {
+  return `<div class="m-item" data-list="${list}" data-i="${i}"><div class="m-item-fields">${inner}</div>
+    <div class="m-item-acts">${reorder("item-move", i, n, what)}<button class="ghost small danger" data-mact="item-del" aria-label="Delete ${esc(what)}">Delete</button></div></div>`;
+}
+
+function educationCard() {
+  const items = M.draft.education || [];
+  return sectionCard("education", "m-education", "Education", `${items.length} ${items.length === 1 ? "entry" : "entries"}`, `
+    ${items.map((e, i) => itemRow("education", i, items.length, ["school", "credential", "location", "start", "end"].map((f) => fieldInput("education", e, f)).join(""), e.school || "this entry")).join("")}
+    <div class="mb-add"><button class="ghost small" data-mact="add-item" data-list="education">Add education</button></div>`);
+}
+
+const gameUsers = (g) => [...((M.used.game || {})[g.id] || []), ...M.draft.positions.filter((p) => p.game === g.id).map((p) => `position ${p.id}`)];
+
+function gamesCard() {
+  const items = M.draft.games || [];
+  return sectionCard("games", "m-games", "Games", plural(items.length, "game"), `
+    ${items.map((g, i) => itemRow("games", i, items.length, ["name", "start", "end"].map((f) => fieldInput("games", g, f)).join("") + idInput("game", g.id, gameUsers(g), "Positions and applications refer to a game by this id."), g.name || "this game")).join("")}
+    <div class="mb-add"><button class="ghost small" data-mact="add-item" data-list="games">Add game</button></div>`);
 }
 
 function skillsCard() {
-  return `<section class="card" id="m-skills" data-skills>
-    <div class="hd"><strong class="grow">Skills</strong><span class="faint" style="font-size:12px">one line per group on the resume, comma separated</span></div>
-    ${(M.draft.skills || []).map((g, gi) => `<div class="mb" data-gi="${gi}">
-      <div class="row2" style="grid-template-columns:150px 1fr auto">
-        <input data-gf="group" value="${esc(g.group)}" aria-label="Group name">
-        <input data-gf="items" value="${esc((g.items || []).join(", "))}" aria-label="${esc(g.group)} skills, comma separated">
-        <button class="ghost small danger" data-mact="del-group" aria-label="Delete the ${esc(g.group)} group">Delete</button>
-      </div></div>`).join("")}
-    <div class="mb"><div class="row"><button class="small" data-mact="add-group">Add skill group</button></div></div>
-  </section>`;
+  const items = M.draft.skills || [];
+  return sectionCard("skills", "m-skills", "Skills", plural(items.length, "group"), `
+    ${items.map((g, i) => {
+      const apps = (M.used["skill group"] || {})[g.group] || [];
+      const name = apps.length
+        ? `<div class="field">Group <code class="m-id" title="Used by ${esc(apps.join(", "))}, so its name cannot change">${esc(g.group)}</code></div>`
+        : `<label class="field">Group<input data-gf="group" value="${esc(g.group)}"></label>`;
+      return itemRow("skills", i, items.length, `${name}<label class="field m-wide"><span>Skills <span class="faint">comma separated, one line on the resume</span></span><textarea data-gf="items" data-auto rows="1">${esc((g.items || []).join(", "))}</textarea></label>`, g.group || "this group");
+    }).join("")}
+    <div class="mb-add"><button class="ghost small" data-mact="add-item" data-list="skills">Add skill group</button></div>`);
 }
+
+// ----- master page: saving -----
 
 function masterSummary() {
   if (M.mode === "raw") return "Unsaved changes to the YAML";
@@ -1698,13 +1979,23 @@ function masterSummary() {
   const seen = new Set();
   let edited = 0;
   let added = 0;
-  for (const o of [...M.draft.positions, ...(M.draft.projects || [])]) for (const b of o.bullets || []) {
+  for (const b of owners().flatMap((o) => o.bullets || [])) {
     seen.add(b.id);
     if (!(b.id in base)) added++;
     else if (base[b.id] !== JSON.stringify(b)) edited++;
   }
   const removed = Object.keys(base).filter((id) => !seen.has(id)).length;
   const parts = [[edited, "edited"], [added, "added"], [removed, "deleted"]].filter(([n]) => n).map(([n, w]) => `${plural(n, "bullet")} ${w}`);
+  const same = (key) => JSON.stringify(M.draft[key] ?? null) === JSON.stringify(M.base[key] ?? null);
+  const shell = (list) => JSON.stringify((list || []).map((o) => ({ ...o, bullets: undefined })));
+  const order = (list) => JSON.stringify((list || []).map((o) => (o.bullets || []).map((b) => b.id)));
+  if (!same("basics")) parts.push("contact details");
+  if (!same("education")) parts.push("education");
+  if (!same("games")) parts.push("games");
+  if (!same("skills")) parts.push("skills");
+  if (shell(M.draft.positions) !== shell(M.base.positions)) parts.push("positions");
+  if (shell(M.draft.projects) !== shell(M.base.projects)) parts.push("projects");
+  if (!parts.length && (order(M.draft.positions) !== order(M.base.positions) || order(M.draft.projects) !== order(M.base.projects))) parts.push("bullet order");
   return parts.length ? `Unsaved changes: ${parts.join(", ")}` : "Unsaved changes";
 }
 
@@ -1717,44 +2008,242 @@ function updateSavebar() {
   $("#save-msg").innerHTML = M.error ? `<span class="pill bad">Not saved</span> ${esc(M.error)}` : esc(masterSummary());
 }
 
-const splitList = (v) => v.split(",").map((t) => t.trim()).filter(Boolean);
+// What a form can leave wrong, caught here with a plain message. The server checks it as well.
+function masterProblems() {
+  const out = [];
+  const date = /^(\d{4}-\d{1,2}|present)$/i;
+  const need = (label, o, fields) => {
+    for (const f of fields) if (!String(o[f] ?? "").trim()) out.push(`${label} needs ${FIELD_LABEL[f].toLowerCase()}`);
+    for (const f of ["start", "end"]) if (o[f] && !date.test(String(o[f]))) out.push(`${label}: ${f} should be ${DATE_HINT}, not "${o[f]}"`);
+  };
+  need("Contact", M.draft.basics, REQUIRED.basics);
+  for (const p of M.draft.positions) need(`Position ${p.company || p.id}`, p, REQUIRED.positions);
+  for (const p of M.draft.projects || []) need(`Project ${p.name || p.id}`, p, REQUIRED.projects);
+  for (const g of M.draft.games || []) need(`Game ${g.name || g.id}`, g, REQUIRED.games);
+  for (const e of M.draft.education || []) need(`Education ${e.school || ""}`.trim(), e, REQUIRED.education);
+  for (const g of M.draft.skills || []) if (!String(g.group ?? "").trim()) out.push("A skill group needs a name");
+  for (const b of owners().flatMap((o) => o.bullets || [])) if (!b.text.trim()) out.push(`Bullet ${b.id} has no text`);
+  return out;
+}
+
+const splitList = (v) => v.split(",").map((t) => t.replace(/\s+/g, " ").trim()).filter(Boolean);
 
 document.addEventListener("input", (e) => {
   const el = e.target;
-  if (!el.closest(".master") || el.closest("[data-add]")) return;
+  if (!el.closest(".master")) return;
+  if (el.dataset.mfilter) {
+    M[el.dataset.mfilter] = el.value;
+    return applyFilter();
+  }
+  if (el.dataset.mmove !== undefined || el.dataset.idf) return;  // these act on change, below
   M.error = "";
   if (el.id === "raw-master") {
     M.rawText = el.value;
     return updateSavebar();
   }
+  if (el.dataset.auto !== undefined) grow(el);
   const card = el.closest("[data-kind]");
-  if (card) {
-    const owner = M.draft[card.dataset.kind][Number(card.dataset.oi)];
-    if (el.dataset.of) owner[el.dataset.of] = el.value;
-    const row = el.closest("[data-bi]");
-    if (row && el.dataset.bf) {
-      const b = owner.bullets[Number(row.dataset.bi)];
-      if (el.dataset.bf === "text") b.text = el.value.replace(/\s*\n\s*/g, " ");
-      if (el.dataset.bf === "tags") b.tags = splitList(el.value);
-      if (el.dataset.bf === "short") {
-        if (el.value.trim()) b.short = el.value.replace(/\s*\n\s*/g, " ");
-        else delete b.short;
-      }
-      if (el.dataset.bf === "priority") b.priority = Number(el.value);
-      row.classList.toggle("dirty", bulletDirty(b));
+  if (el.dataset.sf) {
+    const scope = el.dataset.sf;
+    const list = el.closest("[data-list]");
+    const target = scope === "basics" ? M.draft.basics : list ? M.draft[scope][Number(list.dataset.i)] : M.draft[scope][Number(card.dataset.oi)];
+    setField(target, el.dataset.f, el.value.trim() === "" ? "" : el.value, FIELD_ORDER[scope], (REQUIRED[scope] || []).includes(el.dataset.f));
+    if (card) {
+      $("[data-owner-head]", card).textContent = ownerHead(card.dataset.kind, target);
+      $("[data-owner-sub]", card).textContent = ownerSub(card.dataset.kind, target);
     }
   }
-  const g = el.closest("[data-gi]");
-  if (g) {
-    const group = M.draft.skills[Number(g.dataset.gi)];
+  const row = el.closest("[data-bi]");
+  if (row && el.dataset.bf) {
+    const b = rowOwner(row).o.bullets[Number(row.dataset.bi)];
+    const f = el.dataset.bf;
+    if (f === "text") b.text = el.value.replace(/\s*\n\s*/g, " ");
+    if (f === "tags") b.tags = splitList(el.value);
+    if (f === "short") setField(b, "short", el.value.trim() ? el.value.replace(/\s*\n\s*/g, " ") : "", FIELD_ORDER.bullets);
+    if (f === "priority") b.priority = Number(el.value);
+    if (f === "variant") setField(b, "variant_of", el.value, FIELD_ORDER.bullets);
+    if (f === "text" || f === "short") $(`[data-hint=${f}]`, row).innerHTML = textHint(f === "text" ? b.text : b.short || "");
+    row.classList.toggle("dirty", bulletDirty(b));
+  }
+  const g = el.closest('[data-list="skills"]');
+  if (g && el.dataset.gf) {
+    const group = M.draft.skills[Number(g.dataset.i)];
     if (el.dataset.gf === "group") group.group = el.value;
     if (el.dataset.gf === "items") group.items = splitList(el.value);
   }
   updateSavebar();
 });
+
+const idProblem = (id, taken) => (!ID_RULE.test(id) ? "Use lowercase letters, numbers and hyphens for an id." : taken ? `The id ${esc(id)} is already used. Pick another.` : "");
+
+// Changing an id, once the field is left. Everything that points at the old id moves with it.
+function renameBullet(el) {
+  const row = el.closest("[data-bi]");
+  const { o } = rowOwner(row);
+  const b = o.bullets[Number(row.dataset.bi)];
+  const id = el.value.trim();
+  if (id === b.id) return;
+  const bad = idProblem(id, allIds().has(id));
+  if (bad) {
+    el.value = b.id;
+    return toast(bad, true);
+  }
+  applyBulletId(o, b, id, row);
+}
+
+function applyBulletId(o, b, id, row) {
+  for (const x of o.bullets) if (x.variant_of === b.id) x.variant_of = id;
+  document.querySelectorAll('.master select[data-bf="variant"] option').forEach((opt) => {
+    if (opt.value === b.id) opt.value = id;
+  });
+  if (M.exp.delete(b.id)) M.exp.add(id);
+  b.id = id;
+  row.dataset.bid = id;
+  const input = $("[data-idf=bullet]", row);
+  if (input) input.value = id;
+  row.classList.toggle("dirty", bulletDirty(b));
+  updateSavebar();
+}
+
+function renameThing(el) {
+  const kind = el.dataset.idf;
+  const id = el.value.trim();
+  const list = el.closest("[data-list]");
+  const card = el.closest("[data-kind]");
+  const obj = kind === "game" ? M.draft.games[Number(list.dataset.i)] : M.draft[card.dataset.kind][Number(card.dataset.oi)];
+  if (id === obj.id) return;
+  const siblings = kind === "game" ? M.draft.games : M.draft[card.dataset.kind];
+  const bad = idProblem(id, siblings.some((x) => x.id === id));
+  if (bad) {
+    el.value = obj.id;
+    return toast(bad, true);
+  }
+  applyThingId(kind, obj, id, card);
+  el.value = id;
+}
+
+function applyThingId(kind, obj, id, card) {
+  if (kind === "game") {
+    for (const p of M.draft.positions) if (p.game === obj.id) p.game = id;
+    obj.id = id;
+    return updateSavebar();
+  }
+  const from = ownerKey(card.dataset.kind, obj);
+  obj.id = id;
+  const to = ownerKey(card.dataset.kind, obj);
+  if (M.closed.delete(from)) M.closed.add(to);
+  if (M.open[from]) {
+    delete M.open[from];
+    M.open[to] = true;
+  }
+  card.dataset.sec = to;
+  updateSavebar();
+}
+
+// A new item starts with a placeholder id. The first real name replaces it, so nobody has to
+// invent an id, and after that it stays put unless changed by hand.
+const PLACEHOLDER_ID = /^new-(position|project|game)(-\d+)?$/;
+const PLACEHOLDER_BULLET = /^(.*-)?new(-\d+)?$/;
+
+function autoIds(el) {
+  const row = el.closest("[data-bi]");
+  if (row && el.dataset.bf === "text") {
+    const { o } = rowOwner(row);
+    const b = o.bullets[Number(row.dataset.bi)];
+    const m = b.id.match(PLACEHOLDER_BULLET);
+    const wanted = slug(b.text, 4);
+    if (m && !(b.id in baseBullets()) && wanted.length > 1) {
+      const taken = allIds();
+      taken.delete(b.id);
+      applyBulletId(o, b, uniqueId(`${m[1] || ""}${wanted}`, taken), row);
+    }
+    return;
+  }
+  if (!el.dataset.sf) return;
+  const card = el.closest("[data-kind]");
+  const list = el.closest('[data-list="games"]');
+  if (!card && !list) return;
+  const obj = list ? M.draft.games[Number(list.dataset.i)] : M.draft[card.dataset.kind][Number(card.dataset.oi)];
+  if (!PLACEHOLDER_ID.test(obj.id)) return;
+  const wanted = slug(list || card.dataset.kind === "projects" ? obj.name || "" : [obj.company, obj.title].filter(Boolean).join(" "));
+  if (wanted.length < 2) return;
+  const siblings = new Set((list ? M.draft.games : M.draft[card.dataset.kind]).filter((x) => x !== obj).map((x) => x.id));
+  applyThingId(list ? "game" : card.dataset.kind === "positions" ? "position" : "project", obj, uniqueId(wanted, siblings), card);
+  const input = $("[data-idf]", list || card);
+  if (input) input.value = obj.id;
+}
+
 document.addEventListener("change", (e) => {
-  if (e.target.closest(".master") && e.target.dataset.bf === "priority") e.target.dispatchEvent(new Event("input", { bubbles: true }));
+  const el = e.target;
+  if (!el.closest(".master")) return;
+  if (el.dataset.bf === "priority") el.dispatchEvent(new Event("input", { bubbles: true }));
+  if (el.dataset.idf === "bullet") renameBullet(el);
+  else if (el.dataset.idf) renameThing(el);
+  else if (el.dataset.mmove !== undefined) moveBullet(el);
+  else autoIds(el);
 });
+
+function moveBullet(el) {
+  const row = el.closest("[data-bi]");
+  const { o } = rowOwner(row);
+  const b = o.bullets[Number(row.dataset.bi)];
+  const split = el.value.indexOf(":");
+  const toKind = el.value.slice(0, split);
+  const target = (M.draft[toKind] || []).find((p) => p.id === el.value.slice(split + 1));
+  if (!target) return;
+  const family = variantFamily(o, b);
+  const names = family.map((x) => x.id).join(" and ");
+  const apps = [...new Set(family.flatMap((x) => M.usage[x.id] || []))];
+  if (apps.length) {
+    el.value = "";
+    const them = family.length > 1 ? "them" : "it";
+    return toast(`${esc(names)} ${family.length > 1 ? "are" : "is"} used by ${apps.map(esc).join(", ")}. Untick ${them} there first, then move ${them} here.`, true, 7000);
+  }
+  o.bullets = o.bullets.filter((x) => !family.includes(x));
+  target.bullets = [...(target.bullets || []), ...family];
+  M.closed.delete(ownerKey(toKind, target));
+  renderMasterBody();
+  toast(`Moved ${esc(names)} to ${esc(toKind === "positions" ? target.company : target.name)}.`);
+  document.querySelector(`.master [data-bid="${CSS.escape(b.id)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function swap(list, i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= list.length) return false;
+  [list[i], list[j]] = [list[j], list[i]];
+  return true;
+}
+
+// After a redraw, puts the keyboard back on the button that was just pressed, if it still can be.
+function refocus(selector) {
+  const el = document.querySelector(selector);
+  if (el && !el.disabled) el.focus();
+}
+
+function collapseRow(row) {
+  const { o } = rowOwner(row);
+  const b = o.bullets[Number(row.dataset.bi)];
+  M.exp.delete(b.id);
+  if (!b.text.trim() && !(b.id in baseBullets())) {  // a new bullet nothing was typed into
+    o.bullets.splice(o.bullets.indexOf(b), 1);
+    return renderMasterBody();
+  }
+  redrawRow(row, ".mb-open");
+  updateSavebar();
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const row = e.target.closest?.(".master .mb.open");
+  if (row) collapseRow(row);
+});
+
+function setClosed(sec, closed) {
+  if (!sec) return;
+  sec.classList.toggle("closed", closed);
+  $(".m-tog", sec)?.setAttribute("aria-expanded", String(!closed));
+  if (!closed) growAll(sec);
+}
 
 document.addEventListener("click", async (e) => {
   const el = e.target.closest("[data-mact]");
@@ -1762,60 +2251,156 @@ document.addEventListener("click", async (e) => {
   const act = el.dataset.mact;
   const card = el.closest("[data-kind]");
   const owner = card && M.draft[card.dataset.kind][Number(card.dataset.oi)];
+  const row = el.closest("[data-bi]");
+  const sec = el.closest("[data-sec]");
   if (act === "check") {
     await runImpact();
   } else if (act === "impact-close") {
     M.impact = null;
     renderImpact();
   } else if (act === "jump") {
+    if (M.q || M.tag || M.show) {  // the section may be filtered out, so show everything again
+      M.q = M.tag = M.show = "";
+      M.closed.delete(el.dataset.key);
+      renderMasterBody();
+    } else if (M.closed.delete(el.dataset.key)) {
+      setClosed(document.getElementById(el.dataset.target), false);
+      applyFilter();
+    }
     document.getElementById(el.dataset.target)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  } else if (act === "details") {
-    M.open[el.dataset.key] = !M.open[el.dataset.key];
+  } else if (act === "toggle") {
+    const closing = !M.closed.has(sec.dataset.sec);
+    if (closing) M.closed.add(sec.dataset.sec);
+    else M.closed.delete(sec.dataset.sec);
+    setClosed(sec, closing);
+    applyFilter();
+  } else if (act === "collapse-all") {
+    const closing = !ownerKeys().every((k) => M.closed.has(k));
+    for (const k of ownerKeys()) {
+      if (closing) M.closed.add(k);
+      else M.closed.delete(k);
+    }
     renderMasterBody();
+  } else if (act === "details") {
+    const key = sec.dataset.sec;
+    M.open[key] = !M.open[key];
+    M.closed.delete(key);
+    renderMasterBody();
+    refocus(`#${card.id} [data-mact=details]`);
+  } else if (act === "b-open") {
+    M.exp.add(row.dataset.bid);
+    redrawRow(row, "textarea[data-bf=text]");
+  } else if (act === "b-close") {
+    collapseRow(row);
+  } else if (act === "b-move") {
+    const id = row.dataset.bid;
+    if (!swap(owner.bullets, Number(row.dataset.bi), Number(el.dataset.dir))) return;
+    renderMasterBody();
+    refocus(`.master [data-bid="${CSS.escape(id)}"] [data-mact=b-move][data-dir="${el.dataset.dir}"]`);
   } else if (act === "del") {
-    const b = owner.bullets[Number(el.closest("[data-bi]").dataset.bi)];
+    const b = owner.bullets[Number(row.dataset.bi)];
     const used = M.usage[b.id] || [];
     if (used.length) return toast(`${esc(b.id)} is used by ${used.map(esc).join(", ")}. Untick it there first, then delete it here.`, true, 7000);
     if (!confirm(`Delete bullet ${b.id}?\n\n${b.text}`)) return;
     owner.bullets.splice(owner.bullets.indexOf(b), 1);
+    for (const x of owner.bullets) if (x.variant_of === b.id) delete x.variant_of;
+    M.exp.delete(b.id);
     renderMasterBody();
   } else if (act === "add") {
-    const box = el.closest("[data-add]");
-    const id = box.querySelector("[data-add=id]").value.trim();
-    const text = box.querySelector("[data-add=text]").value.replace(/\s+/g, " ").trim();
-    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(id)) return toast("Give the bullet an id of lowercase letters, numbers and hyphens.", true);
-    if (allIds().has(id)) return toast(`The id ${esc(id)} is already used. Pick another.`, true);
-    if (!text) return toast("Write the bullet text first.", true);
+    const id = uniqueId(`${commonPrefix((owner.bullets || []).map((b) => b.id))}new`, allIds());
     owner.bullets = owner.bullets || [];
-    owner.bullets.push({ id, text, tags: splitList(box.querySelector("[data-add=tags]").value), priority: Number(box.querySelector("[data-add=priority]").value) });
+    owner.bullets.push({ id, text: "", tags: [], priority: 2 });
+    M.exp.add(id);
     renderMasterBody();
-  } else if (act === "add-group") {
-    M.draft.skills = M.draft.skills || [];
-    M.draft.skills.push({ group: "New group", items: [] });
+    const next = document.querySelector(`.master [data-bid="${CSS.escape(id)}"]`);
+    next?.scrollIntoView({ block: "center" });
+    $("textarea[data-bf=text]", next)?.focus();
+  } else if (act === "add-owner") {
+    const kind = el.dataset.kind;
+    const single = kind === "positions" ? "position" : "project";
+    M.draft[kind] = M.draft[kind] || [];
+    const id = uniqueId(`new-${single}`, new Set(M.draft[kind].map((o) => o.id)));
+    const fresh = kind === "positions" ? { id, company: "", title: "", start: "", end: "present", bullets: [] } : { id, name: "", bullets: [] };
+    if (kind === "positions") M.draft[kind].unshift(fresh);
+    else M.draft[kind].push(fresh);
+    const key = ownerKey(kind, fresh);
+    M.open[key] = true;
+    M.closed.delete(key);
     renderMasterBody();
-  } else if (act === "del-group") {
-    const gi = Number(el.closest("[data-gi]").dataset.gi);
-    if (!confirm(`Delete the skill group ${M.draft.skills[gi].group}?`)) return;
-    M.draft.skills.splice(gi, 1);
+    const next = document.getElementById(`m-${kind}-${M.draft[kind].indexOf(fresh)}`);
+    next?.scrollIntoView({ block: "center" });
+    $("[data-sf]", next)?.focus();
+  } else if (act === "owner-move") {
+    const id = owner.id;
+    const kind = card.dataset.kind;
+    if (!swap(M.draft[kind], Number(card.dataset.oi), Number(el.dataset.dir))) return;
+    renderMasterBody();
+    const i = M.draft[kind].findIndex((o) => o.id === id);
+    refocus(`#m-${kind}-${i} > .hd [data-mact=owner-move][data-dir="${el.dataset.dir}"]`);
+  } else if (act === "owner-del") {
+    const kind = card.dataset.kind;
+    const single = kind === "positions" ? "position" : "project";
+    const apps = [...new Set([...((M.used[single] || {})[owner.id] || []), ...(owner.bullets || []).flatMap((b) => M.usage[b.id] || [])])];
+    if (apps.length) return toast(`${esc(ownerHead(kind, owner))} is used by ${apps.map(esc).join(", ")}. Remove it there first, then delete it here.`, true, 7000);
+    if (!confirm(`Delete ${ownerHead(kind, owner)} and its ${plural((owner.bullets || []).length, "bullet")}?`)) return;
+    M.draft[kind].splice(M.draft[kind].indexOf(owner), 1);
+    renderMasterBody();
+  } else if (act === "add-item") {
+    const list = el.dataset.list;
+    M.draft[list] = M.draft[list] || [];
+    M.draft[list].push(list === "games" ? { id: uniqueId("new-game", new Set(M.draft.games.map((g) => g.id))), name: "", start: "", end: "present" }
+      : list === "education" ? { school: "", start: "", end: "" }
+      : { group: "", items: [] });
+    renderMasterBody();
+    const items = document.querySelectorAll(`.master .m-item[data-list="${list}"]`);
+    $("input", items[items.length - 1])?.focus();
+  } else if (act === "item-move") {
+    const box = el.closest("[data-list]");
+    const list = box.dataset.list;
+    const i = Number(box.dataset.i);
+    const dir = Number(el.dataset.dir);
+    if (!swap(M.draft[list], i, dir)) return;
+    renderMasterBody();
+    refocus(`.master .m-item[data-list="${list}"][data-i="${i + dir}"] [data-mact=item-move][data-dir="${dir}"]`);
+  } else if (act === "item-del") {
+    const box = el.closest("[data-list]");
+    const list = box.dataset.list;
+    const item = M.draft[list][Number(box.dataset.i)];
+    const apps = list === "games" ? gameUsers(item) : list === "skills" ? (M.used["skill group"] || {})[item.group] || [] : [];
+    const label = item.name || item.school || item.group;
+    if (apps.length) return toast(`${esc(label)} is used by ${apps.map(esc).join(", ")}. Remove it there first, then delete it here.`, true, 7000);
+    if (label && !confirm(`Delete ${label}?`)) return;
+    M.draft[list].splice(Number(box.dataset.i), 1);
     renderMasterBody();
   } else if (act === "discard") {
     if (!confirm("Discard your unsaved master changes?")) return;
     M.draft = clone(M.base);
     M.rawText = null;
     M.error = "";
+    M.exp.clear();
     renderMasterBody();
   } else if (act === "save") {
     await saveMaster();
   }
 });
 
+function commonPrefix(ids) {
+  const parts = ids.map((id) => id.split("-")[0]);
+  return parts.length && parts.every((p) => p === parts[0]) ? `${parts[0]}-` : "";
+}
+
 function allIds() {
-  const ids = new Set();
-  for (const o of [...M.draft.positions, ...(M.draft.projects || [])]) for (const b of o.bullets || []) ids.add(b.id);
-  return ids;
+  return new Set(owners().flatMap((o) => (o.bullets || []).map((b) => b.id)));
 }
 
 async function saveMaster() {
+  if (M.mode !== "raw") {
+    const problems = masterProblems();
+    if (problems.length) {
+      M.error = problems.slice(0, 2).join(". ") + (problems.length > 2 ? `. And ${problems.length - 2} more.` : ".");
+      return updateSavebar();
+    }
+  }
   M.saving = true;
   M.error = "";
   $("#save-msg").textContent = "Saving…";
@@ -1827,6 +2412,7 @@ async function saveMaster() {
     M.text = r.text;
     M.rawText = null;
     M.usage = r.usage;
+    M.used = r.used;
     S.versions = { ...S.versions, ...r.versions };
     S.master = null;
     renderMasterBody();

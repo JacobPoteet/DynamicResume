@@ -616,3 +616,116 @@ def test_new_prints_a_non_latin_name_on_a_console_that_cannot(home, monkeypatch)
                        capture_output=True, encoding="cp1252", errors="replace")
     assert r.returncode == 0, r.stderr
     assert (home / "applications" / "東京ゲームズ-デザイナー" / "tailor.yaml").exists()
+
+
+# ----- removing what else an application names -----
+
+def pick_for_app(ws, **fields):
+    """Make the demo application name more than the bullets it selects."""
+    t = build.load_yaml(ws.apps_dir / EXAMPLE_APP / "tailor.yaml")
+    t.update(fields)
+    ws.save_tailor(EXAMPLE_APP, t)
+
+
+def without_unselected_position(m, position):
+    m["positions"] = [p for p in m["positions"] if p["id"] != position]
+    return m
+
+
+@pytest.mark.parametrize("path", [0, 1], ids=["forms", "raw"])
+@pytest.mark.parametrize("fields, change, named", [
+    ({"games": ["pocket-golf"]}, lambda m: m["games"].pop(2), "game pocket-golf"),
+    ({"skill_groups": ["Platforms"]}, lambda m: m["skills"].pop(3), "skill group Platforms"),
+    ({"projects": ["jam-tools"]}, lambda m: m["projects"].pop(1), "project jam-tools"),
+    ({"projects": {"jam-tools": {"bullets": []}}}, lambda m: m["projects"].pop(1), "project jam-tools"),
+], ids=["game", "skill-group", "project-in-a-list", "project-in-a-map"])
+def test_saving_refuses_to_take_away_what_an_application_names(ws, path, fields, change, named):
+    pick_for_app(ws, **fields)
+    m = ws.master()
+    for p in m["positions"]:  # only the application's use should stop this save
+        if p.get("game") == "pocket-golf":
+            del p["game"]
+    change(m)
+    before = ws.master_text()
+    with pytest.raises(build.BuildError, match=rf"{named} \(used by {EXAMPLE_APP}\)"):
+        save_both_ways(ws)[path](m)
+    assert ws.master_text() == before
+
+
+def test_saving_refuses_to_remove_a_position_an_application_lists_without_bullets(ws):
+    t = build.load_yaml(ws.apps_dir / EXAMPLE_APP / "tailor.yaml")
+    t["positions"]["fd-associate"] = {"bullets": []}
+    ws.save_tailor(EXAMPLE_APP, t)
+    with pytest.raises(build.BuildError, match=rf"position fd-associate \(used by {EXAMPLE_APP}\)"):
+        ws.save_master(without_unselected_position(ws.master(), "fd-associate"))
+
+
+def test_saving_refuses_to_remove_a_game_a_position_points_at(ws):
+    m = ws.master()
+    m["games"] = [g for g in m["games"] if g["id"] != "pocket-golf"]
+    with pytest.raises(build.BuildError, match=r"game pocket-golf \(used by position fd-associate\)"):
+        ws.save_master(m)
+
+
+def test_a_game_can_go_once_nothing_points_at_it(ws):
+    m = ws.master()
+    m["games"] = [g for g in m["games"] if g["id"] != "pocket-golf"]
+    del next(p for p in m["positions"] if p["id"] == "fd-associate")["game"]
+    ws.save_master(m)
+    assert "pocket-golf" not in {g["id"] for g in ws.master()["games"]}
+
+
+def test_a_submitted_application_does_not_hold_anything_in_place(ws):
+    pick_for_app(ws, games=["pocket-golf"])
+    assert ws.thing_usage()["game"]["pocket-golf"] == [EXAMPLE_APP]
+    fake_pdfs(ws)
+    ws.submit_app(EXAMPLE_APP, "2026-10-22")
+    assert ws.thing_usage()["game"] == {}
+
+
+def test_thing_usage_lists_what_each_application_names(ws):
+    pick_for_app(ws, games=["robo-racers"], skill_groups=["Design"], projects=["jam-tools"])
+    used = ws.thing_usage()
+    assert used["game"] == {"robo-racers": [EXAMPLE_APP]}
+    assert used["skill group"] == {"Design": [EXAMPLE_APP]}
+    assert used["project"] == {"jam-tools": [EXAMPLE_APP]}
+    assert EXAMPLE_APP in used["position"]["pixel-forge-sr"]
+
+
+# ----- what a form can leave blank or repeat -----
+
+@pytest.mark.parametrize("change, message", [
+    (lambda m: m["positions"][0].update(company=""), "needs company"),
+    (lambda m: m["positions"][0].update(start="  "), "needs start"),
+    (lambda m: m["games"][0].update(name=""), "needs name"),
+    (lambda m: m["games"].append(dict(m["games"][0])), "two games use the id"),
+    (lambda m: m["positions"].append({**m["positions"][0], "bullets": []}), "two positions use the id"),
+    (lambda m: m["projects"][0].update(name=""), "needs name"),
+    (lambda m: m["education"][0].update(school=""), "has no school"),
+    (lambda m: m["education"][0].update(end=""), "needs end"),
+    (lambda m: m["skills"][0].update(group=""), "has no group"),
+    (lambda m: m["skills"].append(dict(m["skills"][0])), "two skills use the group"),
+], ids=["company", "start", "game-name", "game-id", "position-id", "project-name", "school", "end", "group", "group-name"])
+def test_saving_refuses_blank_and_repeated_fields(ws, change, message):
+    m = ws.master()
+    change(m)
+    before = ws.master_text()
+    with pytest.raises(build.BuildError, match=message):
+        ws.save_master(m)
+    assert ws.master_text() == before
+
+
+def test_forms_round_trip_new_entries_and_keep_comments(ws):
+    m = ws.master()
+    m["basics"]["paper"] = "a4"
+    m["games"].append({"id": "star-foundry", "name": "Star Foundry", "start": "2024-01", "end": "present"})
+    m["education"].append({"school": "Night School", "start": "2020-01", "end": "2021-01"})
+    m["positions"].insert(0, {"id": "acme", "company": "Acme", "title": "Lead", "start": "2026-11", "end": "present", "bullets": []})
+    m["projects"].append({"id": "new-tool", "name": "New Tool", "bullets": []})
+    m["positions"][1], m["positions"][2] = m["positions"][2], m["positions"][1]
+    ws.save_master(m)
+    saved = ws.master()
+    assert [p["id"] for p in saved["positions"]] == ["acme", "dd-designer", "pixel-forge-sr", "fd-associate"]
+    assert saved["games"][-1]["id"] == "star-foundry" and saved["basics"]["paper"] == "a4"
+    text = ws.master_text()
+    assert "# Optional tighter wording" in text and "variant_of makes" in text
