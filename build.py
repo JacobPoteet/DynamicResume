@@ -19,6 +19,7 @@ the main checkout. Set DYNAMICRESUME_HOME to use another folder.
 """
 import argparse
 import calendar
+import hashlib
 import json
 import math
 import os
@@ -26,7 +27,9 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -75,12 +78,13 @@ class BuildError(Exception):
 
 # ---------- helpers ----------
 
-_sink = None
+_local = threading.local()  # per thread: the app's board reads while a preview is rendering
 
 
 def warn(msg):
-    if _sink is not None:
-        _sink.append(msg)
+    sink = getattr(_local, "sink", None)
+    if sink is not None:
+        sink.append(msg)
     else:
         print(f"WARN: {msg}")
 
@@ -88,12 +92,12 @@ def warn(msg):
 @contextmanager
 def collect_warnings():
     """Collect warn() messages into a list instead of printing them."""
-    global _sink
-    prev, _sink = _sink, []
+    prev = getattr(_local, "sink", None)
+    _local.sink = []
     try:
-        yield _sink
+        yield _local.sink
     finally:
-        _sink = prev
+        _local.sink = prev
 
 
 def find_typst():
@@ -109,6 +113,14 @@ def find_typst():
 def load_yaml(path):
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def load_master(path):
+    """The master file, or a clear error when there is none yet (a first run)."""
+    if not Path(path).exists():
+        raise BuildError(f"no master file at {rel(path)}. Copy examples/data/master.yaml there and make it yours, "
+                         "or run 'python build.py serve' and choose Start from the demo master.")
+    return load_yaml(path)
 
 
 def fmt_date(d):
@@ -155,7 +167,8 @@ def rel(p):
 
 
 def slug(s):
-    return re.sub(r"[^A-Za-z0-9]+", "_", s).strip("_")
+    """A piece of a file name: letters and digits in any script, joined by underscores."""
+    return re.sub(r"[\W_]+", "_", unicodedata.normalize("NFC", s)).strip("_")
 
 
 def lint(text, where):
@@ -387,7 +400,28 @@ def resume_data(master, tailor):
     return data
 
 
+MARKDOWN = [  # the template prints a letter as typed, so these would show up in the PDF
+    ("bold", re.compile(r"\*\*[^*\n]+\*\*|__[^_\n]+__")),
+    ("italics", re.compile(r"(?<![\w*])\*[^\s*][^*\n]*\*(?![\w*])|(?<![\w_])_[^\s_][^_\n]*_(?![\w_])")),
+    ("a link", re.compile(r"\[[^\]\n]+\]\([^)\n]+\)")),
+    ("inline code", re.compile(r"`[^`\n]+`")),
+    ("a heading", re.compile(r"^ *#{1,6} +\S.*", re.M)),
+    ("a list", re.compile(r"^ *(?:[-*+]|\d{1,3}[.)]) +\S.*", re.M)),
+    ("a quote", re.compile(r"^ *> *\S.*", re.M)),
+]
+
+
+def lint_letter_markdown(text):
+    """Letters are plain paragraphs: warn about Markdown syntax that would print literally."""
+    for what, rx in MARKDOWN:
+        m = rx.search(text)
+        if m:
+            warn(f"cover letter has Markdown ({what}) that will print as typed: {m.group(0).strip()[:60]!r}. "
+                 "Letters are plain paragraphs.")
+
+
 def letter_data(master, tailor, text):
+    lint_letter_markdown(text)
     cl = tailor.get("cover_letter") or {}
     paragraphs = [" ".join(p.split()) for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
     data = {
@@ -399,6 +433,39 @@ def letter_data(master, tailor, text):
     for s in walk_strings(data):
         lint(s, "cover letter")
     return data
+
+
+def content_hash(data):
+    """A hash of what a PDF prints from this data, so an edit that does not reach the page
+    (a bullet's tags or priority, the master's default headline) does not change it."""
+    def printed(o):
+        if isinstance(o, dict):
+            return {k: printed(v) for k, v in o.items() if k not in ("tags", "priority")}
+        return [printed(v) for v in o] if isinstance(o, list) else o
+    basics = {k: v for k, v in data["basics"].items() if k != "headline"}  # data["headline"] is the one printed
+    text = json.dumps(printed({**data, "basics": basics}), sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def pdf_hashes(master, tailor, letter_text):
+    """What each PDF would contain right now, as a hash. None when it would not build, or
+    for the letter when there is no text."""
+    def resume():
+        tpl = pick_template(tailor)
+        data = {**resolve(master, tailor, False), "template": tpl}
+        if tpl == "resume-inline":  # names games on its role lines, with no Games section
+            del data["games"]
+        return data
+
+    def attempt(make):
+        try:
+            return content_hash(make())
+        except (BuildError, AttributeError, KeyError, TypeError, ValueError):
+            return None  # a tailor or master the build refuses: the PDF cannot match it
+
+    with collect_warnings():
+        return {"resume": attempt(resume),
+                "letter": attempt(lambda: letter_data(master, tailor, letter_text)) if letter_text.strip() else None}
 
 
 # ---------- typst ----------
@@ -500,12 +567,12 @@ def workspace(example):
 
 def build_master(typst, example):
     master_path, _ = workspace(example)
-    master = load_yaml(master_path)
+    master = load_master(master_path)
     data = resolve(master, {}, True)
     for s in walk_strings(data):
         lint(s, "master")
     out_dir = ROOT / "build" / "master"
-    out = out_dir / f"{slug(master['basics']['name'])}_Master.pdf"
+    out = out_dir / f"{slug(master['basics']['name']) or 'Applicant'}_Master.pdf"
     f = fill(render(typst, f"{DEFAULT_TEMPLATE}.typ", data, out, out_dir, "resume"))
     print(f"OK: {rel(out)} ({f['pages']} page{'s' if f['pages'] != 1 else ''})")
 
@@ -532,8 +599,8 @@ def submission(app):
 
 
 def output_names(master, tailor, app):
-    studio = slug((tailor.get("target") or {}).get("studio") or app.name)
-    name = slug(master["basics"]["name"])
+    studio = slug((tailor.get("target") or {}).get("studio") or "") or slug(app.name) or "Application"
+    name = slug(master["basics"]["name"]) or "Applicant"
     return f"{name}_Resume_{studio}.pdf", f"{name}_Cover_Letter_{studio}.pdf"
 
 
@@ -556,6 +623,23 @@ def last_fit(app, example):
         return None
 
 
+def record_build(app, example, master, tailor, letter_text, resume_fill, letter_fill):
+    """Note what a real build made: its page fill for the impact check, and hashes of its
+    content so the app can tell when the PDFs no longer match."""
+    p = fit_path(app, example)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"built": time.strftime("%Y-%m-%d %H:%M"), "resume": resume_fill, "letter": letter_fill,
+                             "hashes": pdf_hashes(master, tailor, letter_text)}, indent=2), encoding="utf-8")
+
+
+def built_hashes(app, example):
+    """The hashes recorded by the last real build, or None if PDFs were built before hashes were recorded."""
+    try:
+        return json.loads(fit_path(app, example).read_text(encoding="utf-8")).get("hashes")
+    except (OSError, ValueError):
+        return None
+
+
 def build_app(typst, app, example, template=None, out_dir=None):
     """Build one application's PDFs into its folder. A --template trial build goes to
     build/<app>/, and `out_dir` (the impact check) takes both PDFs instead, so the
@@ -565,7 +649,7 @@ def build_app(typst, app, example, template=None, out_dir=None):
         raise BuildError(f"{app.name} was submitted on {sub.get('date')}, so its PDFs are frozen. "
                          f"Run 'python build.py unsubmit {app.name}' to edit and rebuild it.")
     master_path, _ = workspace(example)
-    master = load_yaml(master_path)
+    master = load_master(master_path)
     tailor = load_yaml(app / "tailor.yaml")
     work = out_dir or ROOT / "build" / app.name
     dest = out_dir or app
@@ -584,10 +668,11 @@ def build_app(typst, app, example, template=None, out_dir=None):
         return result
 
     letter = app / "cover-letter.md"
-    if not letter.exists() or not letter.read_text(encoding="utf-8").strip():
+    letter_text = letter.read_text(encoding="utf-8") if letter.exists() else ""
+    if not letter_text.strip():
         warn("no cover-letter.md, skipping cover letter")
     else:
-        ldata = letter_data(master, tailor, letter.read_text(encoding="utf-8"))
+        ldata = letter_data(master, tailor, letter_text)
         out = dest / letter_name
         lf = fill(render(typst, "cover-letter.typ", ldata, out, work, "cover-letter"))
         if lf["pages"] and lf["pages"] > 1:
@@ -596,10 +681,7 @@ def build_app(typst, app, example, template=None, out_dir=None):
             warn(w)
         result.update(letter=out, letter_fill=lf)
     if not out_dir:
-        p = fit_path(app, example)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({"built": time.strftime("%Y-%m-%d %H:%M"), "resume": rf,
-                                 "letter": result["letter_fill"]}, indent=2), encoding="utf-8")
+        record_build(app, example, master, tailor, letter_text, rf, result["letter_fill"])
     return result
 
 
@@ -619,6 +701,7 @@ def print_build(app, example, template=None):
 def check_apps(typst, example):
     """Rebuild every unsubmitted application into build/check/ (never its own folder) and
     compare each resume with its last real build. One row per application."""
+    load_master(workspace(example)[0])  # no master at all is one error, not one row per application
     rows = []
     for app in app_folders(example):
         if submission(app):
@@ -663,7 +746,6 @@ def print_check(rows):
 
 def run_draft(example, name):
     """Run the app's headless Claude draft from the command line, printing its progress."""
-    import threading
     from studio.draft import Drafts
     from studio.workspace import Workspace
     drafts = Drafts(Workspace(example), threading.Lock(), ROOT / "build" / ("studio-example" if example else "studio"))
@@ -722,6 +804,8 @@ def print_track(example, args):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):  # a console that cannot show a non-Latin name still runs the command
+        sys.stdout.reconfigure(errors="backslashreplace")
     # --example works before or after the subcommand.
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--example", action="store_true", default=argparse.SUPPRESS,
@@ -783,7 +867,7 @@ def main():
                 r = ws.submit_app(name, args.date)
                 print(f"OK: {name} submitted on {r['date']}. Frozen copies are in {r['path']}")
                 if r["stale"]:
-                    print("WARN: the PDFs were older than your latest edits; they were frozen as they are.")
+                    print("WARN: the PDFs did not match your latest edits; they were frozen as they are.")
             else:
                 r = ws.unsubmit_app(name)
                 print(f"OK: {name} can be edited again." + (f" The sent PDFs are kept in {r['kept']}" if r["kept"] else ""))

@@ -5,6 +5,7 @@ same files the CLI uses (master.yaml, tailor.yaml, ...), so the app, a text edit
 Claude Code can all work on one application.
 """
 import json
+import os
 import re
 import shutil
 import threading
@@ -13,7 +14,7 @@ import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import build
 from build import HOME, ROOT, BuildError
@@ -40,7 +41,7 @@ class Studio:
         p = Path(p).resolve()
         for prefix, base in (("build", ROOT / "build"), ("apps", self.ws.apps_dir)):
             try:
-                return f"/files/{prefix}/{p.relative_to(base.resolve()).as_posix()}?v={int(time.time() * 1000)}"
+                return f"/files/{prefix}/{quote(p.relative_to(base.resolve()).as_posix())}?v={int(time.time() * 1000)}"
             except ValueError:
                 pass
         raise BuildError(f"cannot serve {p}")
@@ -116,7 +117,8 @@ def route(method, pattern):
 def init(s, body, q):
     return {"example": s.example, "templates": build.templates(), "default_template": build.DEFAULT_TEMPLATE,
             "papers": list(build.PAPERS), "default_paper": build.DEFAULT_PAPER,
-            "claude": bool(claude_path()), "data_home": None if s.example or HOME == ROOT else str(HOME)}
+            "claude": bool(claude_path()), "data_home": None if s.example or HOME == ROOT else str(HOME),
+            "needs_master": not s.ws.master_path.exists(), "master_file": build.rel(s.ws.master_path)}
 
 
 @route("GET", "/api/versions")
@@ -156,7 +158,8 @@ def put_tailor(s, body, q, name):
     s.ws.require_editable(name)
     with LOCK:
         s.ws.save_tailor(name, body["tailor"])
-    return {"preview": s.preview(name, "resume", body["tailor"]), "versions": s.versions(name)}
+    return {"preview": s.preview(name, "resume", body["tailor"]), "versions": s.versions(name),
+            "pdfs": s.ws.pdf_status(s.ws.app_dir(name), body["tailor"])}
 
 
 @route("POST", "/api/apps/([^/]+)/preview/(resume|letter)")
@@ -169,7 +172,9 @@ def put_letter(s, body, q, name):
     s.ws.require_editable(name)
     with LOCK:
         s.ws.save_text(name, "cover-letter.md", body["text"])
-    return {"preview": s.preview(name, "letter", letter=body["text"]), "versions": s.versions(name)}
+    app = s.ws.app_dir(name)
+    return {"preview": s.preview(name, "letter", letter=body["text"]), "versions": s.versions(name),
+            "pdfs": s.ws.pdf_status(app, s.ws._read_yaml(app / "tailor.yaml") or {})}
 
 
 @route("POST", "/api/apps/([^/]+)/finalize")
@@ -266,6 +271,13 @@ def put_master(s, body, q):
                 build.lint(text, "master")
     return {"master": master, "text": s.ws.master_text(), "usage": s.ws.bullet_usage(),
             "versions": s.versions(), "warnings": warnings}
+
+
+@route("POST", "/api/master/start-from-demo")
+def start_from_demo(s, body, q):
+    with LOCK:
+        s.ws.start_from_demo()
+    return {"master_file": build.rel(s.ws.master_path), "versions": s.versions()}
 
 
 @route("POST", "/api/check")
@@ -385,9 +397,23 @@ class Handler(BaseHTTPRequestHandler):
         return p
 
 
+class StudioServer(ThreadingHTTPServer):
+    # On Windows, SO_REUSEADDR lets a second server bind a port already in use, and the two
+    # then share it. Elsewhere it only allows a quick restart, and a busy port still fails.
+    allow_reuse_address = os.name != "nt"
+
+
+def open_server(port):
+    try:
+        return StudioServer(("127.0.0.1", port), Handler)
+    except OSError as e:
+        raise BuildError(f"cannot use port {port}: it is already in use or blocked ({e.strerror}). "
+                         "If the editor is already running, use that one, or pick another port with --port.")
+
+
 def serve(example, port, open_browser=True):
+    srv = open_server(port)
     Handler.studio = Studio(example)
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     url = f"http://127.0.0.1:{port}/"
     print(f"DynamicResume editor{' (example data)' if example else ''}: {url}   Ctrl+C to stop")
     if not example and HOME != ROOT:

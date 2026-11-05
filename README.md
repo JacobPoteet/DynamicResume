@@ -33,7 +33,7 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 **Short versions and variants.** A master bullet can carry a `short:` wording that any application switches on with one click, instead of pasting the same shorter override into several applications. A bullet marked `variant_of` another is an alternative version of it (say, one that mentions machine learning for the listings that ask). The editor unticks one when you tick the other, and the build refuses both.
 
-**Impact check.** After every master save, the app rebuilds each application into `build/check/` and lists the ones whose page count or fill changed, so lengthening a bullet or renaming a game never pushes one to two pages unnoticed. `python build.py check` does the same from the command line.
+**Impact check.** After every master save, the app rebuilds each application into `build/check/` and lists the ones whose page count or fill changed, so lengthening a bullet or renaming a game never pushes one to two pages unnoticed. `python build.py check` does the same from the command line. An application's PDFs show as out of date only when what they would contain has changed, so editing a bullet it does not use leaves it current.
 
 **Recurring gaps.** Each draft lists what the listing asks for that your master cannot back up, with a short topic. Master, Gaps ranks those topics across every application, so you know which bullets are worth writing next.
 
@@ -43,13 +43,13 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 **ATS-friendly output.** Single column, real text, standard section names, no icons, and each role's company repeated so autofill parsers never mistake a team name for an employer. Template changes are checked with `pypdf` text extraction. PDFs carry a title and author, and contact and project URLs are links.
 
-**Matching cover letters.** Write paragraphs in Markdown. The letter shares the resume's header, colors and margins.
+**Matching cover letters.** Write plain paragraphs with a blank line between them. `cover-letter.md` is not rendered as Markdown: bold, links and lists print as typed, so the build warns when it finds any. The letter shares the resume's header, colors and margins.
 
 **Submitted applications stay as sent.** Once you send an application, choose Mark submitted. The PDFs are frozen exactly as they are, with the tailor, letter, listing and master that made them, in the application's `submitted/` folder. Builds skip it, the app opens it read-only and shows the PDFs you sent, and the master is free to change without touching it. When a studio calls you back, you can open the resume they actually have. Unsubmit makes it editable again.
 
 **Application tracking.** The home page is a board: Drafting, Applied, Screen, Interviewing and Offer, with Rejected, Ghosted and Withdrew trays underneath. Drag a card to its next stage and say when it happened (today, yesterday, or any date), when the call or interview is scheduled, and a note. Interview rounds record the format, length, interviewers, prep notes and a debrief. Moving a draft to Applied marks it submitted. A card with nothing logged or scheduled for 30 days asks whether you were ghosted, which counts as a rejection but stays out of time-to-rejection. Click a card for its full history, where any entry can be edited or deleted. Timeline draws every application across the calendar, and Stats shows the reply rate, days to first reply and to rejection, how far applications got, applications per week and what is coming up. Each application's history is a plain `tracking.yaml` in its folder.
 
-**Safe editing.** The app writes YAML with round-trip formatting, so comments and layout in your files survive. Every master save keeps the previous version, the app refuses to delete a bullet an application still uses, and snapshots zip everything before a redraft or delete. Edit the files in a text editor or with Claude at any time; the app notices within a couple of seconds and reloads.
+**Safe editing.** The app writes YAML with round-trip formatting, so comments and layout in your files survive. Every master save keeps the previous version, the app refuses to delete a bullet an application still uses, and snapshots zip everything before a redraft or delete. Restoring a snapshot rolls back your edits but keeps the current tracking history, since that records what really happened. Edit the files in a text editor or with Claude at any time; the app notices within a couple of seconds and reloads.
 
 ## Quick start
 
@@ -72,8 +72,8 @@ Drafting needs [Claude Code](https://claude.com/claude-code) installed and signe
 
 ## Using it for real
 
-1. Copy `examples/data/master.yaml` to `data/master.yaml` and replace it with your own history. Write more bullets than fit on a page, tag them, and give the strongest ones priority 1.
-2. Run `python build.py serve`. Paste a job listing under New application and choose Create and draft with Claude.
+1. Run `python build.py serve` and choose Start from the demo master (or copy `examples/data/master.yaml` to `data/master.yaml` yourself). Replace it with your own history. Write more bullets than fit on a page, tag them, and give the strongest ones priority 1.
+2. Paste a job listing under New application and choose Create and draft with Claude.
 3. Review the draft: check the requirement chips, swap bullets, reword where it helps, and fill the page.
 4. Build PDFs, then check the build output says one page for both files.
 5. After you send them, choose Mark submitted so later master changes never rebuild what the studio has.
