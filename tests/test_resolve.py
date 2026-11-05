@@ -1,10 +1,11 @@
 """How master + tailor merge: overrides, short text, variants, unknown ids, warnings."""
 import copy
+import threading
 
 import pytest
 
 import build
-from conftest import texts
+from conftest import EXAMPLE_APP, REPO, texts
 
 
 def by_id(master):
@@ -104,6 +105,104 @@ def test_unknown_tailor_keys_warn(master, tailor):
     with build.collect_warnings() as w:
         build.resolve(master, {**tailor, "colour": "teal"}, False)
     assert "tailor.yaml key 'colour' is not used by the build" in w
+
+
+def with_default_paper(master, paper):
+    m = copy.deepcopy(master)
+    m["basics"]["paper"] = paper
+    return m
+
+
+def test_paper_defaults_to_letter(master, tailor):
+    assert "paper" not in master["basics"] and "paper" not in tailor
+    assert build.resume_data(master, tailor)["paper"] == "us-letter"
+    assert build.letter_data(master, tailor, "Body.")["paper"] == "us-letter"
+
+
+def test_tailor_paper_applies_to_resume_and_letter_without_a_warning(master, tailor):
+    t = {**tailor, "paper": "a4"}
+    with build.collect_warnings() as w:
+        assert build.resume_data(master, t)["paper"] == "a4"
+        assert build.letter_data(master, t, "Body.")["paper"] == "a4"
+    assert w == []
+
+
+def test_master_basics_set_the_default_paper_and_a_tailor_wins(master, tailor):
+    m = with_default_paper(master, "a4")
+    assert build.resume_data(m, tailor)["paper"] == "a4"
+    assert build.letter_data(m, tailor, "Body.")["paper"] == "a4"
+    assert build.resolve(m, {}, True)["paper"] == "a4"  # the master build
+    assert build.resume_data(m, {**tailor, "paper": "letter"})["paper"] == "us-letter"
+
+
+@pytest.mark.parametrize("paper", ["legal", "A4", "us-letter", 4, ["a4"]])
+def test_an_invalid_tailor_paper_is_a_build_error(master, tailor, paper):
+    t = {**tailor, "paper": paper}
+    with pytest.raises(build.BuildError, match="unknown paper .* in tailor.yaml. Use one of: letter, a4"):
+        build.resume_data(master, t)
+    with pytest.raises(build.BuildError, match="unknown paper"):
+        build.letter_data(master, t, "Body.")
+
+
+def test_an_invalid_master_paper_fails_validation(master):
+    with pytest.raises(build.BuildError, match="unknown paper 'legal' in master basics"):
+        build.validate_master(with_default_paper(master, "legal"))
+
+
+@pytest.mark.parametrize("letter, what", [
+    ("I shipped **three** games.", "bold"),
+    ("I shipped __three__ games.", "bold"),
+    ("I shipped *three* games.", "italics"),
+    ("I shipped _three_ games.", "italics"),
+    ("See [my site](https://example.com) for more.", "a link"),
+    ("I wrote `tools` for it.", "inline code"),
+    ("# About me\n\nI ship games.", "a heading"),
+    ("What I did:\n- shipped\n- tuned", "a list"),
+    ("What I did:\n1. shipped\n2. tuned", "a list"),
+    ("> A quote from a review", "a quote"),
+])
+def test_a_letter_warns_about_markdown(master, tailor, letter, what):
+    with build.collect_warnings() as w:
+        data = build.letter_data(master, tailor, letter)
+    assert any(f"Markdown ({what})" in x for x in w), w
+    assert " ".join(data["paragraphs"]) == " ".join(letter.split())  # printed as typed
+
+
+@pytest.mark.parametrize("letter", [
+    "I shipped three games.\n\nI tuned 2*3*4 grids and wrote snake_case_names.",
+    "Rates rose by 5% - a small change (see below).\n\nDear [Team], thanks.",
+    "In 2019. I joined the team.",
+])
+def test_a_plain_letter_has_no_markdown_warning(master, tailor, letter):
+    with build.collect_warnings() as w:
+        build.letter_data(master, tailor, letter)
+    assert not any("Markdown" in x for x in w), w
+
+
+def test_the_demo_letter_has_no_markdown_warning(master, tailor):
+    with build.collect_warnings() as w:
+        build.letter_data(master, tailor, (REPO / "examples/applications" / EXAMPLE_APP / "cover-letter.md").read_text(encoding="utf-8"))
+    assert not any("Markdown" in x for x in w), w
+
+
+def test_collecting_warnings_on_one_thread_does_not_touch_another():
+    # The app's board reads PDF status while a preview on another thread collects its warnings.
+    other = threading.Event()
+    done = threading.Event()
+
+    def elsewhere():
+        with build.collect_warnings():
+            other.set()
+            done.wait(5)
+
+    t = threading.Thread(target=elsewhere)
+    with build.collect_warnings() as w:
+        t.start()
+        other.wait(5)
+        build.warn("mine")
+        done.set()
+        t.join()
+    assert w == ["mine"]
 
 
 def test_lint_flags_em_dashes_and_banned_phrases():

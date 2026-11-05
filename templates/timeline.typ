@@ -125,7 +125,7 @@
 
 #let render(d, show-games) = {
   set document(title: d.basics.name + " Resume", author: d.basics.name)
-  set page(paper: "us-letter", margin: (x: margin-x, y: margin-y))
+  set page(paper: d.paper, margin: (x: margin-x, y: margin-y))
   set text(font: ("Calibri", "Arial", "Libertinus Serif"), size: 10pt, fill: ink, lang: "en")
   set par(leading: 0.4em, spacing: 0pt, justify: false)
   set block(spacing: 0pt)

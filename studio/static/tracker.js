@@ -274,7 +274,7 @@ function openEvent(a, opts = {}) {
             <button type="button" class="small" data-day="-1">Yesterday</button>
             <input type="date" id="ev-date" value="${esc(ev.date)}" aria-label="Date" required>
           </div></div>
-        ${s === "applied" && drafting ? `<div class="hint">This marks it submitted: the PDFs, tailor, letter and listing are frozen as they are now.${a.pdfs?.resume?.stale ? " <b>The PDFs are older than your latest edits.</b>" : ""}</div>` : ""}
+        ${s === "applied" && drafting ? `<div class="hint">This marks it submitted: the PDFs, tailor, letter and listing are frozen as they are now.${a.pdfs?.resume?.stale ? " <b>The PDFs do not match your latest edits.</b>" : ""}</div>` : ""}
         ${s === "ghosted" ? `<div class="hint">Ghosted counts as a rejection but is left out of time-to-rejection, since it has no real end date.</div>` : ""}
         ${s === "screen" || s === "interview" ? `<div class="field"><span id="ev-sched">Scheduled for (optional)</span>
           <div class="row" role="group" aria-labelledby="ev-sched">

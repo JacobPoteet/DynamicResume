@@ -29,13 +29,15 @@ Needs `typst` (`winget install Typst.Typst`) and `pip install -r requirements.tx
 
 **After editing the master,** run `python build.py check`. It rebuilds every unsubmitted application into `build/check/`, never the application folders, and compares each resume with its last real build. It exits nonzero when one goes past one page. The Master page and Save to master on the Resume tab run the same check after every save. Then fix what it reports (a `short` text, a different bullet) before building.
 
-The app has four areas: Applications (a board of every application by stage, with List, Timeline and Stats views and New application; see Application tracking below; deleting from List takes a snapshot first), the editor (Resume, Cover letter and Listing tabs beside a live page preview, with Build PDFs and Mark submitted), Master (edit bullets, short texts, tags, priorities, position details and skills, or the raw YAML; Save validates before writing, refuses to delete a bullet an application uses, then shows which applications the change affects; a Gaps view ranks what listings asked for that the master lacks), and Snapshots. The app and the CLI read and write the same files, so either can be used at any time. The app saves `tailor.yaml` on every change and rebuilds the preview; it notices edits made to the files outside the app (by Claude or a text editor) within a couple of seconds and reloads. While you are mid-edit the reload waits until you finish, and the server refuses an autosave that would overwrite a file changed outside (`Workspace.outside_edits`): the editor keeps your edit and asks whether to use the file on disk or keep your edit. It writes YAML with ruamel round-trip, so comments and layout in `master.yaml` and `tailor.yaml` survive, and every master save keeps the previous file in `snapshots/master-history/`.
+With no `data/master.yaml`, the app opens on a first-run screen that offers to copy the demo master there, and `build`, `check` and `new` print a clear `ERROR:` line.
+
+The app has four areas: Applications (a board of every application by stage, with List, Timeline and Stats views and New application; see Application tracking below; deleting from List takes a snapshot first), the editor (Resume, Cover letter and Listing tabs beside a live page preview, with Build PDFs and Mark submitted), Master (edit bullets, short texts, tags, priorities, position details and skills, or the raw YAML; Save validates before writing, and the server refuses a save (Bullets or Raw YAML) that removes, renames or moves a bullet an unsubmitted application selects or overrides, then shows which applications the change affects; a Gaps view ranks what listings asked for that the master lacks), and Snapshots. The app and the CLI read and write the same files, so either can be used at any time. The app saves `tailor.yaml` on every change and rebuilds the preview; it notices edits made to the files outside the app (by Claude or a text editor) within a couple of seconds and reloads. While you are mid-edit the reload waits until you finish, and the server refuses an autosave that would overwrite a file changed outside (`Workspace.outside_edits`): the editor keeps your edit and asks whether to use the file on disk or keep your edit. It writes YAML with ruamel round-trip, so comments and layout in `master.yaml` and `tailor.yaml` survive, and every master save keeps the previous file in `snapshots/master-history/`.
 
 ## Submitted applications
 
 Mark submitted (in the editor, or `build.py submit`) copies the application's PDFs as they are, plus `tailor.yaml`, `cover-letter.md`, `listing.md`, `listing.yaml` and the current `master.yaml`, into `applications/<app>/submitted/` with a `submitted.yaml` (date, file names, whether the PDFs were older than the inputs). From then on `build <app>` refuses (a `--template` trial build to `build/` still works), `build-all` skips it, the app opens it read-only and shows the sent PDFs beside the frozen `tailor.yaml`, letter, listing and `master.yaml` (the live file if an older `submitted/` lacks one), the server refuses edits and drafts, and its bullets no longer block master deletes. Snapshots include the sent PDFs. Unsubmit removes `submitted/` when the folder's PDFs still match it, and otherwise keeps it as `submitted-<date>/`.
 
-Never edit, rebuild, or unsubmit a submitted application unless the user asks. Tracking is the exception: `tracking.yaml` stays editable after submitting.
+Never edit, rebuild, or unsubmit a submitted application unless the user asks. Tracking is the exception: `tracking.yaml` stays editable after submitting, and restoring a snapshot keeps the current `tracking.yaml` (the snapshot's copy is written only when an application has none).
 
 ## Application tracking
 
@@ -49,12 +51,12 @@ In the app, "Create and draft with Claude" (or Redraft on the Listing tab) runs 
 
 When tailoring from a chat instead, follow these steps and also write `listing.yaml` so the app can show requirement coverage:
 
-1. Run `python build.py new "<studio>" "<role>" --listing -` with the listing on stdin. It creates `applications/<studio>-<role>/` with `listing.md` and a starter `tailor.yaml`.
+1. Run `python build.py new "<studio>" "<role>" --listing -` with the listing on stdin. It creates `applications/<studio>-<role>/` with `listing.md` and a starter `tailor.yaml`. Folder and PDF names keep letters and digits in any script; a name of only symbols gets a generated folder (`app-1a2b3c4d`).
 2. Check `data/studios.yaml` for notes on the studio (games played, people known) to use in the letter.
 3. Read `data/master.yaml`. Pick bullets by tag match against the listing, then priority (1 = strongest). Order bullets within each position by relevance to the listing, not by priority alone.
 4. Write `tailor.yaml`: a `headline`, ordered bullet ids per position, `skills_first`, optional `overrides` and `short`. Never select a bullet and its `variant_of` partner together.
 5. Reword with `overrides` only where it helps match the listing's language. To save space, list a bullet under `short` (when the master has a `short` text) rather than pasting a shorter override. Never edit the master for one application.
-6. Write `cover-letter.md`: paragraphs separated by blank lines. Set greeting and closing in `tailor.yaml` under `cover_letter`.
+6. Write `cover-letter.md`: plain paragraphs separated by blank lines. It is not rendered as Markdown: syntax prints as typed, and the build warns about it. Set greeting and closing in `tailor.yaml` under `cover_letter`.
 7. Run `python build.py build <folder>`. Confirm the output says 1 page for both PDFs. If over, it says about how many lines to cut: use `short` texts, trim the bullets it lists as having nearly empty last lines, or cut lowest-priority bullets or skill groups; do not shrink fonts. Fix any role line or headline it says wraps. If the last page is well under 90% full, say so: the user may want to add a bullet.
 8. Write `listing.yaml`, giving each gap a `topic` (reuse the topics other applications use), and tell the user which bullets were chosen and what the master cannot back up, so they can add bullets.
 
@@ -74,6 +76,7 @@ All dates are `YYYY-MM` or `present`. Positions are listed newest first; that or
 basics:
   name, email, phone, location, linkedin      # all strings
   headline                                    # optional default; tailor.yaml usually sets its own
+  paper                                       # optional default page size: letter or a4; tailor.yaml can override it
 
 games:                                        # "Games" section
   - id, name, start, end
@@ -112,6 +115,7 @@ Tags in use: `leadership, mentorship, ui, game-ai, generative-ai, multiplayer, v
 ```yaml
 target: {studio: ..., role: ...}              # studio is used in output file names; see the note below
 template: resume-inline | resume-games | resume   # optional, default resume-inline
+paper: letter | a4                            # optional, resume and letter; default master basics.paper, else letter
 headline: Senior Technical Designer | Quests, Encounters   # optional, one line under the name
 games: [game ids]                             # optional; absent = all, [] = none
 positions:                                    # only listed positions appear
@@ -127,7 +131,7 @@ cover_letter: {greeting, closing, date}       # all optional
 
 Renaming the studio through the app (saved when you leave the field) renames the PDFs in the application folder and moves its `studios.yaml` notes if the new name has none. The notes stay under the old name too while another application uses it, and `submitted/` is never touched. A rename in a text editor does neither: build again, and move the notes by hand.
 
-An unknown id, or a bullet selected with its `variant_of` partner, is a build error. An override or `short` id that matches no selected bullet, or a top-level key the build does not use, is a warning.
+An unknown id or `paper` value, or a bullet selected with its `variant_of` partner, is a build error; the Resume tab shows an unknown bullet, position, project or game as a "Not in the master" row with Remove. A redraft keeps the application's `paper`. An override or `short` id that matches no selected bullet, or a top-level key the build does not use, is a warning.
 
 ## tracking.yaml schema
 
@@ -182,10 +186,10 @@ CI (`.github/workflows/ci.yml`) runs ruff and `node --check`, the privacy check 
 
 ## Files
 
-- `build.py`: merge, lint, compile, page fill, the impact check, and the data home (`find_home`). Each template ends with a `<layout>` metadata label (page count, where the content ends, the usable area), and `timeline.typ` adds a `<bullet-fit>` label per bullet (lines, last-line fill) and a `<wrap>` label for a role line or headline that wraps; `build.py` queries all metadata. Each real build records its fill in `build/fit/<app>.json` under the data home, which `check` compares against. Errors raise `BuildError`; `collect_warnings()` gathers warnings for the app.
+- `build.py`: merge, lint, compile, page fill, the impact check, and the data home (`find_home`). Each template ends with a `<layout>` metadata label (page count, where the content ends, the usable area), and `timeline.typ` adds a `<bullet-fit>` label per bullet (lines, last-line fill) and a `<wrap>` label for a role line or headline that wraps; `build.py` queries all metadata. Each real build records its fill in `build/fit/<app>.json` under the data home, which `check` compares against, and a hash of the resolved resume and letter data (`pdf_hashes`). The app marks PDFs out of date when those hashes differ from what the current files would produce, so a master edit that does not reach an application's pages leaves it current. PDFs with no recorded hash compare file times. A change to a template's own code does not count as out of date. Errors raise `BuildError`; `collect_warnings()` gathers warnings for the app.
 - `studio/`: the editor app. `server.py` (standard library HTTP server, JSON API, 127.0.0.1 only), `draft.py` (headless Claude Code drafts), `workspace.py` (application folders, round-trip YAML merge, master history, snapshots, gap summary, studio notes, tracking events), `tracking.py` (event checks, board column, quiet and ghosted rules, stats), `static/` (one HTML page, plain JS and CSS, no build step; `tracker.js` is the home page board, history, Timeline and Stats).
 - `templates/timeline.typ` (shared), `resume-games.typ`, `resume-inline.typ`: resumes grouped by company, so several roles at one company sit under one heading, each with its own dates (no company-wide span). `resume-inline` (the default) puts each game on its role line, skipping it on a role that shares the game of the role above, and repeating the company on every role after the first so a parser never reads a team name as the employer; `resume-games` adds a Games section with one undated line per game. Pick one with `template:` in `tailor.yaml`, in the app, or try one with `python build.py build <app> --template resume-games` (that trial PDF goes to `build/<app>/`, not the application folder). No template has a summary; an optional one-line headline sits under the name.
 - `templates/cover-letter.typ`: imports its colors, margins and header (name, headline, contact line) from `timeline.typ`, so the letter matches `resume-games` and `resume-inline`.
 - `docs/`: the GitHub Pages project page, served from `main` /docs with no build step (`index.html`, `assets/`, `img/`), plus the README screenshots. Screenshots come from the demo (`python build.py --example serve`); never use real data. Phrases meant to be public, like the author credit, go in `scripts/public-terms.txt` so the privacy check's `PRIVATE_TERMS` skip them.
-- `templates/common.typ`: gray header band, fonts and page setup for the older `resume.typ` only. All templates read `sys.inputs.data` (resolved JSON in `build/`).
+- `templates/common.typ`: gray header band, fonts and page setup for the older `resume.typ` only. All templates read `sys.inputs.data` (resolved JSON in `build/`) and take the page size from its `paper` field.
 - Keep resumes ATS friendly: single column, real text, no icons, standard section names, no multi-column rows outside the right-aligned dates, and Skills before Projects (a standard heading closes Experience, so parsers do not fold projects into the last job), section-heading letter spacing at 0.08em or less (wider spacing extracts as "E X P E R I E N C E"). Check with `pypdf`'s `extract_text()` after a template change. PDFs carry a title and author, and contact and project URLs are links.

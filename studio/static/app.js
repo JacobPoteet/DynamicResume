@@ -75,6 +75,7 @@ const ON_OUTSIDE_EDIT = { blocked: () => false };
 
 let lastHash = location.hash;
 function route() {
+  if (S.init.needs_master) return showFirstRun();
   const [a, b, c] = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (a !== "master" && lastHash.startsWith("#/master") && masterDirty()) {
     if (!confirm("You have unsaved master changes. Leave and discard them?")) {
@@ -103,6 +104,37 @@ function route() {
     : a === "snapshots" ? showSnapshots()
     : showHome(["list", "timeline", "stats"].includes(a) ? a : "board");
   go.catch((e) => view(`<div class="page"><div class="card"><div class="bd">${esc(e.message)}</div></div></div>`));
+}
+
+// ---------- first run ----------
+
+// No master yet: nothing else in the app can load, so explain that and offer the demo as a start.
+function showFirstRun() {
+  $("#snap-btn").hidden = true;
+  view(`<div class="page"><section class="card">
+    <div class="hd"><h1>Welcome to DynamicResume</h1></div>
+    <div class="bd stack">
+      <p style="margin:0">There is no master file yet at <code>${esc(S.init.master_file)}</code>. The master holds every position, bullet and skill you could show, and each application picks from it.</p>
+      <p style="margin:0">Start from the demo master, a fictional career, and replace it with your own on the Master page. Or create that file yourself, and this page moves on when it appears.</p>
+      <div class="row"><button class="primary" id="first-run">Start from the demo master</button><span id="first-run-err"></span></div>
+    </div>
+  </section></div>`);
+  $("#first-run").onclick = async () => {
+    try {
+      const r = await api("POST", "/api/master/start-from-demo");
+      S.versions = { ...S.versions, ...r.versions };
+      toast(`Copied the demo to ${esc(r.master_file)}. Replace it with your own history on the Master page.`, false, 8000);
+      masterAppeared();
+    } catch (e) {
+      $("#first-run-err").innerHTML = `<span class="pill bad">${esc(e.message)}</span>`;
+    }
+  };
+}
+
+function masterAppeared() {
+  S.init.needs_master = false;
+  $("#snap-btn").hidden = false;
+  route();
 }
 
 // ---------- home ----------
@@ -189,6 +221,7 @@ async function showEditor(name, tab) {
   const t = S.app.tailor;
   const tabs = [["resume", "Resume"], ["letter", "Cover letter"], ["listing", "Listing"]].filter(([k]) => TABS[k]);
   const tpl = t.template || S.init.default_template;
+  const paper = t.paper || S.master.basics?.paper || S.init.default_paper;
   const sub = S.app.submitted;
   const tools = sub ? `
       <span class="pill good" title="Builds skip this application">Submitted ${esc(fmtDay(sub.date))}</span>
@@ -196,6 +229,9 @@ async function showEditor(name, tab) {
       <button id="unsubmit" title="Make this application editable again">Unsubmit</button>` : `
       <label class="row muted" style="font-size:13px"><span class="tpl-word">Template</span>
         <select id="tpl" aria-label="Resume template">${S.init.templates.map((x) => `<option ${x === tpl ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
+      </label>
+      <label class="row muted" style="font-size:13px" title="Page size for the resume and the cover letter"><span class="tpl-word">Paper</span>
+        <select id="paper" aria-label="Paper size">${S.init.papers.map((x) => `<option value="${esc(x)}" ${x === paper ? "selected" : ""}>${x === "letter" ? "US Letter" : esc(x.toUpperCase())}</option>`).join("")}</select>
       </label>
       <span id="pdf-state"></span>
       <button id="submit" title="Freeze the PDFs as you sent them">Mark submitted</button>
@@ -219,6 +255,8 @@ async function showEditor(name, tab) {
   if (sub) return showSent(kind);
   renderPdfState();
   $("#tpl").onchange = (e) => { t.template = e.target.value; queueSave(0); };
+  // Paper also changes the letter, whose preview a resume save does not refresh.
+  $("#paper").onchange = (e) => { t.paper = e.target.value; delete S.previews.letter; queueSave(0); };
   $("#finalize").onclick = finalize;
   $("#submit").onclick = markSubmitted;
   if (S.previews[kind]) renderPreview(kind);
@@ -227,7 +265,7 @@ async function showEditor(name, tab) {
         <div class="fillline"><span class="pv-busy"><span class="spinner"></span>Rendering the preview</span></div>
         <div class="meter"></div>
       </div>
-      <div class="pages ${fitClass()}"><div class="sheet ghost"></div></div>`;
+      <div class="pages ${fitClass()}"><div class="sheet ghost ${paper === "a4" ? "a4" : ""}"></div></div>`;
     setBusy(true);
     fitSheets();
     refreshPreview(kind);
@@ -257,7 +295,7 @@ function showSent(kind) {
     the PDFs stay exactly as sent. Unsubmit it to edit or rebuild.</div>`);
   const file = sub[kind] || sub.resume;
   $("#right").innerHTML = `<div class="pv-head"><div class="fillline">
-      <span class="pill good">As sent</span><span class="muted">${esc(file)}</span>${sub.stale ? `<span class="pill warn" title="The PDFs were older than the latest edits when they were frozen">Built before the last edits</span>` : ""}
+      <span class="pill good">As sent</span><span class="muted">${esc(file)}</span>${sub.stale ? `<span class="pill warn" title="The PDFs did not match the latest edits when they were frozen">Built before the last edits</span>` : ""}
       <span class="grow"></span><a href="${sentUrl(file)}" target="_blank">Open in a new tab</a></div></div>
     <iframe class="sent-pdf" src="${sentUrl(file)}" title="${kind === "letter" ? "Cover letter" : "Resume"} as sent"></iframe>`;
   $("#unsubmit").onclick = unsubmit;
@@ -269,7 +307,7 @@ async function markSubmitted() {
   const p = S.app.pdfs;
   if (!p.resume.exists) return toast("Build the PDFs you are sending first, then mark the application submitted.", true);
   if ((p.resume.stale || (p.letter.exists && p.letter.stale)) &&
-      !confirm("The PDFs are older than your latest edits. They are frozen as they are now, which is usually what you sent. Continue?")) return;
+      !confirm("The PDFs do not match your latest edits. They are frozen as they are now, which is usually what you sent. Continue?")) return;
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const date = prompt("The day you sent it (YYYY-MM-DD). The PDFs, tailor, letter, listing and master are copied to submitted/.", today);
@@ -301,7 +339,7 @@ function renderPdfState() {
   if (!el) return;
   const p = S.app.pdfs;
   const link = (x, label) => x.exists
-    ? `<a class="pill ${x.stale ? "warn" : "good"}" href="${pdfUrl(x.file)}" target="_blank" title="${x.stale ? "Older than your latest changes" : "Up to date"}">${label}${x.stale ? " (old)" : ""}</a>`
+    ? `<a class="pill ${x.stale ? "warn" : "good"}" href="${pdfUrl(x.file)}" target="_blank" title="${x.stale ? "Does not match your latest changes. Build PDFs to update it." : "Up to date"}">${label}${x.stale ? " (old)" : ""}</a>`
     : "";
   el.innerHTML = `<span class="row">${link(p.resume, "Resume PDF")}${link(p.letter, "Letter PDF")}</span>`;
 }
@@ -368,7 +406,6 @@ async function saveNow() {
     if (r.pdfs) S.app.pdfs = r.pdfs;  // a studio rename changes the file names
     if (r.studio_notes != null && !listingDirty.has("notes")) S.app.studio_notes = r.studio_notes;
     if (r.warnings?.length) toast(r.warnings.map(esc).join("<br>"), true, 9000);
-    for (const k of ["resume", "letter"]) if (S.app.pdfs[k].exists) S.app.pdfs[k].stale = true;
     renderPdfState();
     if (TABS[S.tab]?.preview === "resume") renderPreview("resume");
     else refreshPreview(TABS[S.tab].preview);
@@ -650,7 +687,7 @@ function renderResumeLeft() {
       <label class="field wide">Headline (one line under your name)<input data-field="headline" value="${esc(t.headline)}"
         placeholder="${esc((m.basics || {}).headline || "Your title | two to four focus areas from the listing")}"></label>
     </div>`;
-  html += reqsBlock();
+  html += reqsBlock() + unknownBlock();
   if ((m.games || []).length) html += sec("Games", (t.template || S.init.default_template) === "resume-games" ? "" : "only resume-games shows this section") + gamesBlock();
   html += sec("Experience", "drag to reorder (Alt+Up/Down from the keyboard), double-click a bullet to edit") +m.positions.map((p) => ownerBlock(p, "positions")).join("");
   if ((m.projects || []).length) html += sec("Personal projects", "selected projects print in this order") + projectOrder().map((p) => ownerBlock(p, "projects")).join("");
@@ -674,12 +711,36 @@ function sec(title, hint = "") {
   return `<div class="sec"><h2>${esc(title)}</h2>${hint ? `<span class="faint" style="font-size:12px">${esc(hint)}</span>` : ""}</div>`;
 }
 
+// Ids in the tailor that the master does not have (an edit made outside the app). The build
+// stops on them, so each gets a row with a way out. A missing bullet sits in its position's list.
+function missingRow(kind, owner, id, what) {
+  const attrs = what ? `data-act="drop-unknown" data-kind="${kind}" data-id="${esc(id)}"` : `data-act="drop-missing"`;
+  return `<li class="b missing" data-kind="${kind}" data-owner="${esc(owner)}" data-id="${esc(id)}">
+    <span class="grip"></span>
+    <div class="body"><span class="pill bad">Not in the master</span> <code>${esc(id)}</code>
+      <div class="meta">This application selects this ${what || "bullet"}, but the master does not have it${what ? "" : " here"}, so the resume cannot build. Remove it from this application, or add it back to the master.</div></div>
+    <span class="acts"><button class="ghost small" ${attrs} aria-label="Remove ${esc(id)} from this application">Remove</button></span>
+  </li>`;
+}
+
+function unknownBlock() {
+  const t = S.app.tailor;
+  const lacks = (list) => (id) => !(list || []).some((x) => x.id === id);
+  const rows = [
+    ...Object.keys(t.positions || {}).filter(lacks(S.master.positions)).map((id) => missingRow("positions", "", id, "position")),
+    ...Object.keys(t.projects || {}).filter(lacks(S.master.projects)).map((id) => missingRow("projects", "", id, "project")),
+    ...(t.games || []).filter(lacks(S.master.games)).map((id) => missingRow("games", "", id, "game")),
+  ];
+  return rows.length ? sec("Not in the master") + `<div class="pos"><ul>${rows.join("")}</ul></div>` : "";
+}
+
 function ownerBlock(p, kind) {
   const sel = selected(kind, p.id);
   const on = sel !== null;
   const bullets = p.bullets || [];
   const byId = Object.fromEntries(bullets.map((b) => [b.id, b]));
   const chosen = on ? sel.map((id) => byId[id]).filter(Boolean) : [];
+  const missing = on ? sel.filter((id) => !byId[id]) : [];
   const rest = sortRest(bullets.filter((b) => !on || !sel.includes(b.id)));
   const title = kind === "positions" ? `${p.company} · ${p.title}` : p.name;
   const sub = kind === "positions"
@@ -688,6 +749,7 @@ function ownerBlock(p, kind) {
   const focus = S.ui.focusReq != null ? requirements()[S.ui.focusReq] : null;
   const open = on || S.ui.expanded[p.id] || (focus && bullets.some((b) => reqMatches(focus, b)));
   const rows = !open ? "" : `<ul data-kind="${kind}" data-owner="${esc(p.id)}">
+    ${missing.map((id) => missingRow(kind, p.id, id)).join("")}
     ${chosen.map((b) => bulletRow(b, kind, p.id, true)).join("")}
     ${on && rest.length ? `<li class="divider">Not selected</li>` : ""}
     ${rest.map((b) => bulletRow(b, kind, p.id, false)).join("")}
@@ -990,6 +1052,21 @@ document.addEventListener("click", async (e) => {
 
 const CLICK_ACTIONS = {};
 
+CLICK_ACTIONS["drop-missing"] = (el) => {
+  const t = S.app.tailor;
+  const { kind, owner, id } = el.closest(".b").dataset;
+  setBulletSelected(kind, owner, id, false);
+  if (t.overrides) delete t.overrides[id];
+  if (t.short) t.short = t.short.filter((x) => x !== id);
+  changed();
+};
+CLICK_ACTIONS["drop-unknown"] = (el) => {
+  const t = S.app.tailor;
+  if (el.dataset.kind === "games") t.games = t.games.filter((x) => x !== el.dataset.id);
+  else delete t[el.dataset.kind][el.dataset.id];
+  changed();
+};
+
 document.addEventListener("keydown", (e) => {
   // Alt+Up/Down on a selected bullet's checkbox moves it, the keyboard version of dragging.
   if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && e.target.matches?.(".b.sel input[data-act=bullet]")) {
@@ -1063,7 +1140,7 @@ function renderLetterLeft() {
       <label class="field">Closing<input data-field="cl-closing" value="${esc(cl.closing)}" placeholder="Sincerely,"></label>
     </div>
     <label class="field">Date (optional, printed above the greeting)<input data-field="cl-date" value="${esc(cl.date)}" placeholder="October 22, 2026"></label>
-    <label class="field">Letter body: cover-letter.md, a blank line between paragraphs
+    <label class="field">Letter body: plain paragraphs with a blank line between them. Markdown prints as typed.
       <textarea id="letter-text" placeholder="${S.init.claude ? "Draft with Claude on the Listing tab writes a first version here." : ""}">${esc(S.app.letter || "")}</textarea></label>
     <div class="muted" id="letter-count" style="font-size:12px"></div>
   </div>`;
@@ -1117,7 +1194,7 @@ async function saveLetter() {
     S.versions = { ...S.versions, ...r.versions };
     if (S.app?.name !== name) return;
     S.previews.letter = r.preview;
-    if (S.app.pdfs.letter.exists) S.app.pdfs.letter.stale = true;
+    S.app.pdfs = r.pdfs;
     renderPdfState();
     if (S.tab === "letter") renderPreview("letter");
     status("Saved", "ok");
@@ -1404,8 +1481,8 @@ function renderMasterBody() {
   const body = $("#mbody");
   if (M.mode === "gaps") return renderGaps();
   if (M.mode === "raw") {
-    body.innerHTML = `<p class="muted" style="margin:0;font-size:13px">The whole file, comments included. Saving checks that it parses and builds before writing.
-      Bullet ids are referenced by applications: do not rename one that is in use.</p>
+    body.innerHTML = `<p class="muted" style="margin:0;font-size:13px">The whole file, comments included. Saving checks that it parses and builds before writing,
+      and refuses to remove, rename or move a bullet an unsubmitted application uses.</p>
       <textarea class="raw" id="raw-master" spellcheck="false">${esc(M.rawText ?? M.text)}</textarea>`;
     return updateSavebar();
   }
@@ -1737,6 +1814,7 @@ async function showSnapshots() {
       <div class="bd stack">
         <p class="muted" style="margin:0">A snapshot zips <code>master.yaml</code>, every application folder (without PDFs), the templates${S.init.example ? "" : ", <code>Local/</code> and <code>CLAUDE.local.md</code>"} into <code>snapshots/</code>. Take one before a big change.
         Restoring writes those files back over the current ones. It takes a new snapshot first, and files created after the snapshot are left alone.
+        Tracking history stays as it is now, because it records what really happened; a snapshot's copy comes back only for an application that has none, such as a deleted one.
         Separately, every save of <code>master.yaml</code> keeps the previous version in <code>snapshots/master-history/</code>.</p>
         <div class="row"><input id="snap-label" placeholder="Label (optional), e.g. before-big-rewrite" style="max-width:380px"><button class="primary" id="snap-create">Take snapshot</button></div>
       </div>
@@ -1759,11 +1837,12 @@ async function takeSnapshot(label = "") {
 }
 
 async function restoreSnapshot(name) {
-  if (!confirm(`Restore ${name}?\n\nThis writes the snapshot's files over your current master.yaml, applications and templates. A snapshot of the current state is taken first.`)) return;
+  if (!confirm(`Restore ${name}?\n\nThis writes the snapshot's files over your current master.yaml, applications and templates. Tracking history stays as it is now, unless an application has none (a deleted one coming back). A snapshot of the current state is taken first.`)) return;
   try {
     const r = await api("POST", `/api/snapshots/${enc(name)}/restore`);
     S.app = null;
-    toast(`Restored ${plural(r.restored, "file")}. Previous state saved as ${esc(r.backup)}.`, false, 7000);
+    const kept = r.kept_tracking ? ` Kept the current tracking history for ${plural(r.kept_tracking, "application")}.` : "";
+    toast(`Restored ${plural(r.restored, "file")}.${kept} Previous state saved as ${esc(r.backup)}.`, false, 7000);
     showSnapshots();
   } catch (e) {
     toast(esc(e.message), true);
@@ -1787,6 +1866,10 @@ async function pollVersions() {
   }
   if (serverLost) status("");
   serverLost = false;
+  if (S.init.needs_master) {
+    if (v.master) masterAppeared();
+    return;
+  }
   if (savePending || savesInFlight || S.conflict) return;  // a save started meanwhile: its write is not an outside edit
   const moved = Object.keys(v).some((k) => k in S.versions && v[k] > S.versions[k] + 0.001);
   S.versions = { ...S.versions, ...v };

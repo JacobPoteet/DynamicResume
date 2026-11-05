@@ -380,6 +380,7 @@ button.ghost.quiet-danger:hover { color: var(--bad); background: var(--bad-soft)
 .b .acts { display: flex; gap: 2px; opacity: 0; flex: none; }
 .b:hover .acts, .b:focus-within .acts { opacity: 1; }
 @media (hover: none) { .b .acts { opacity: 1; } }
+.b.missing .acts { opacity: 1; }
 .b.hl, .pos.off .b.hl { background: var(--good-soft); }
 .b.dragging { opacity: 0.4; }
 .b.drop-before { box-shadow: inset 0 2px 0 var(--drop); }
@@ -437,6 +438,7 @@ button.ghost.quiet-danger:hover { color: var(--bad); background: var(--bad-soft)
 .sheet .lbl { position: absolute; top: 6px; right: 8px; }
 .sheet.over img { outline: 2px solid var(--bad); outline-offset: 2px; }
 .sheet.ghost { aspect-ratio: 8.5 / 11; background: var(--panel); border: 1px dashed var(--line-strong); border-radius: 2px; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+.sheet.ghost.a4 { aspect-ratio: 210 / 297; }
 .pages.fit-page .sheet { display: flex; justify-content: center; }
 .pages.fit-page .sheet img { width: auto; max-width: 100%; height: var(--sheet-h, auto); }
 .pages.fit-page .sheet.ghost { height: var(--sheet-h, auto); margin: 0 auto; }

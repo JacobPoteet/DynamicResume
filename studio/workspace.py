@@ -4,10 +4,12 @@ YAML goes through ruamel's round-trip mode, so comments, quoting and layout in t
 hand-edited files survive edits made in the app.
 """
 import copy
+import hashlib
 import io
 import json
 import re
 import shutil
+import unicodedata
 import zipfile
 from datetime import datetime
 
@@ -21,7 +23,7 @@ from build import ROOT, BuildError
 from studio import tracking
 
 HISTORY_KEEP = 50
-APP_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+APP_NAME = re.compile(r"^[^\W_][\w.-]*$")  # \w: letters and digits in any script, plus _
 SNAP_NAME = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}[A-Za-z0-9_-]*\.zip$")
 DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 FROZEN = ("tailor.yaml", "cover-letter.md", "listing.md", "listing.yaml")  # copied next to the sent PDFs
@@ -169,6 +171,30 @@ def plain(node):
     return json.loads(json.dumps(node, default=str))
 
 
+def folder_name(studio, role):
+    """An application's folder name: lowercase letters and digits in any script, joined by
+    hyphens. A studio and role with neither (all symbols) get a generated name."""
+    text = unicodedata.normalize("NFC", f"{studio} {role}").lower()
+    return re.sub(r"[\W_]+", "-", text).strip("-") or f"app-{hashlib.sha256(text.encode('utf-8')).hexdigest()[:8]}"
+
+
+def _places(master):
+    """(owner id, bullet id) for every bullet in a master."""
+    owners = (master.get("positions") or []) + (master.get("projects") or [])
+    return {(o.get("id"), b.get("id")) for o in owners for b in o.get("bullets") or []}
+
+
+def _selected(tailor):
+    """(owner id, bullet id) for every bullet a tailor names. A project given as a plain list,
+    or with no bullet list, shows all of its bullets, so it names none."""
+    out = set()
+    for group in (tailor.get("positions"), tailor.get("projects")):
+        if isinstance(group, dict):
+            for owner, v in group.items():
+                out.update((owner, i) for i in (v or {}).get("bullets") or [])
+    return out
+
+
 # ---------- workspace ----------
 
 class Workspace:
@@ -187,15 +213,48 @@ class Workspace:
     # ----- master -----
 
     def master(self):
-        return build.load_yaml(self.master_path)
+        return build.load_master(self.master_path)
 
     def master_text(self):
+        if not self.master_path.exists():
+            build.load_master(self.master_path)  # raises the first-run message
         return self.master_path.read_text(encoding="utf-8")
+
+    def start_from_demo(self):
+        """A first run: copy the fictional demo master to data/master.yaml to edit from."""
+        if self.master_path.exists():
+            raise BuildError(f"{build.rel(self.master_path)} already exists")
+        self.master_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "examples" / "data" / "master.yaml", self.master_path)
 
     def check_master(self, data):
         build.validate_master(data)
         with build.collect_warnings():
             build.resolve(data, {}, True)
+        self.check_removals(data)
+
+    def check_removals(self, data):
+        """Refuse a save that takes a bullet away from where an unsubmitted application uses
+        it (deleted, renamed, or moved to another position): that application could not build."""
+        try:
+            old = self.master()
+        except yaml.YAMLError:
+            return  # the file on disk does not parse; saving is how it gets fixed
+        now = _places(data)
+        gone, ids = _places(old) - now, {i for _, i in now}
+        used = {}
+        for app in self.app_dirs():
+            if build.submission(app):
+                continue
+            t = self._read_yaml(app / "tailor.yaml") or {}
+            chosen, overrides = _selected(t), t.get("overrides") or {}
+            for owner, i in sorted(gone):
+                if (owner, i) in chosen or (i in overrides and i not in ids):
+                    used.setdefault(i, []).append(app.name)
+        if used:
+            names = "; ".join(f"{i} (used by {', '.join(apps)})" for i, apps in sorted(used.items()))
+            raise BuildError(f"Not saved: this takes away bullets that applications still use: {names}. "
+                             "Untick each one in those applications first, or put it back.")
 
     def save_master(self, data):
         """Write plain master data, merged into the existing file to keep its comments."""
@@ -228,14 +287,7 @@ class Workspace:
             if build.submission(app):
                 continue  # its submitted/ folder keeps its own master, so the live one is free to change
             t = self._read_yaml(app / "tailor.yaml") or {}
-            ids = set((t.get("overrides") or {}).keys())
-            for v in (t.get("positions") or {}).values():
-                ids.update((v or {}).get("bullets") or [])
-            projects = t.get("projects") or {}
-            if isinstance(projects, dict):
-                for v in projects.values():
-                    ids.update((v or {}).get("bullets") or [])
-            for i in ids:
+            for i in set(t.get("overrides") or {}) | {i for _, i in _selected(t)}:
                 usage.setdefault(i, []).append(app.name)
         return usage
 
@@ -264,15 +316,22 @@ class Workspace:
         return path.read_text(encoding="utf-8") if path.exists() else None
 
     def pdf_status(self, app, tailor, master=None):
+        """Each PDF's file name, whether it exists, and whether it is out of date: whether what
+        it would contain now differs from what it held when built. PDFs built before those
+        hashes were recorded compare file times instead."""
         master = master or self.master()
         resume, letter = build.output_names(master, tailor, app)
-        inputs = [self.master_path, app / "tailor.yaml", app / "cover-letter.md"]
-        newest = max((p.stat().st_mtime for p in inputs if p.exists()), default=0)
+        built = build.built_hashes(app, self.example)
+        if built:
+            now = build.pdf_hashes(master, tailor, self._read_text(app / "cover-letter.md") or "")
+        else:
+            inputs = [self.master_path, app / "tailor.yaml", app / "cover-letter.md"]
+            newest = max((p.stat().st_mtime for p in inputs if p.exists()), default=0)
         out = {}
         for key, fname in (("resume", resume), ("letter", letter)):
             p = app / fname
-            out[key] = {"file": fname, "exists": p.exists(),
-                        "stale": p.exists() and p.stat().st_mtime < newest}
+            stale = p.exists() and (built.get(key) != now[key] if built else p.stat().st_mtime < newest)
+            out[key] = {"file": fname, "exists": p.exists(), "stale": stale}
         return out
 
     def list_apps(self):
@@ -296,13 +355,14 @@ class Workspace:
         studio, role = (studio or "").strip(), (role or "").strip()
         if not studio or not role:
             raise BuildError("studio and role are both required")
-        name = re.sub(r"[^a-z0-9]+", "-", f"{studio} {role}".lower()).strip("-")
+        name = folder_name(studio, role)
         app = self.apps_dir / name
         if app.exists():
             raise BuildError(f"applications/{name} already exists")
+        starter = self.starter_tailor(studio, role)  # before the folder: with no master, nothing is left behind
         app.mkdir(parents=True)
         (app / "listing.md").write_text(f"# {studio}: {role}\n\n{(listing or '').strip()}\n", encoding="utf-8")
-        self.save_tailor(name, self.starter_tailor(studio, role))
+        self.save_tailor(name, starter)
         return name
 
     def starter_tailor(self, studio, role):
@@ -655,18 +715,24 @@ class Workspace:
 
     def restore_snapshot(self, name):
         """Write the snapshot's files back over the current ones. Takes a snapshot first.
-        Files created after the snapshot are left alone."""
+        Files created after the snapshot are left alone. So is an application's tracking.yaml:
+        it records what really happened, so rolling back edits does not undo it. The snapshot's
+        copy is written only when there is none (a deleted application coming back)."""
         if not SNAP_NAME.match(name or "") or not (self.snap_dir / name).exists():
             raise BuildError(f"no snapshot named {name}")
         backup = self.create_snapshot("before-restore")
-        n = 0
+        n = kept = 0
+        apps = self.apps_dir.resolve()
         with zipfile.ZipFile(self.snap_dir / name) as z:
             for member in z.namelist():
                 base = ROOT if member.startswith("templates/") else self.home
                 dest = (base / member).resolve()
                 if base.resolve() not in dest.parents:
                     raise BuildError(f"snapshot entry outside the repo: {member}")
+                if dest.name == tracking.FILE and dest.parent.parent == apps and dest.exists():
+                    kept += 1
+                    continue
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(z.read(member))
                 n += 1
-        return {"restored": n, "backup": backup["name"]}
+        return {"restored": n, "kept_tracking": kept, "backup": backup["name"]}
