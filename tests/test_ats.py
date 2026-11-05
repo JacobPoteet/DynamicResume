@@ -6,6 +6,7 @@ import re
 import shutil
 
 import pytest
+import yaml
 
 import build
 from conftest import EXAMPLE_APP, REPO
@@ -103,6 +104,62 @@ def test_a_long_role_line_is_reported(typst, master, tailor):
     m["games"][1]["name"] = "Dungeon Delvers Remastered Definitive Edition Collection Deluxe"
     _, f = render_resume(typst, "long-role", m, tailor)
     assert [w["what"] for w in f["wraps"]] == ["Role line"]
+
+
+PAGE_PT = {"letter": (612, 792), "a4": (595.28, 841.89)}
+
+
+@pytest.fixture(scope="module", params=sorted(PAGE_PT))
+def sized(request, typst):
+    """The demo application built fresh on each paper size, from a copy of its folder."""
+    paper = request.param
+    work = workdir(f"paper-{paper}")
+    app = work / "app"
+    shutil.copytree(APP, app)
+    t = build.load_yaml(app / "tailor.yaml")
+    t["paper"] = paper
+    (app / "tailor.yaml").write_text(yaml.safe_dump(t), encoding="utf-8")
+    return paper, build.build_app(typst, app, True, out_dir=work)
+
+
+def page_size(path):
+    from pypdf import PdfReader
+    boxes = [(float(p.mediabox.width), float(p.mediabox.height)) for p in PdfReader(path).pages]
+    assert len(boxes) == 1, f"{path} should be one page"
+    return boxes[0]
+
+
+def test_both_pdfs_use_the_chosen_paper(sized):
+    paper, r = sized
+    assert page_size(r["resume"]) == pytest.approx(PAGE_PT[paper], abs=0.1)
+    assert page_size(r["letter"]) == pytest.approx(PAGE_PT[paper], abs=0.1)
+
+
+def test_each_paper_passes_the_ats_text_checks(sized, master):
+    _, r = sized
+    assert r["resume_fill"]["pages"] == 1 and r["letter_fill"]["pages"] == 1
+    assert r["resume_fill"]["wraps"] == []
+    text = pdf_text(r["resume"])
+    for heading in ("EXPERIENCE", "SKILLS", "PROJECTS", "EDUCATION"):
+        assert re.search(rf"^{heading}$", text, re.M), f"{heading} heading missing or spaced out"
+    assert not re.search(r"\b[A-Z] [A-Z] [A-Z] [A-Z]\b", text), "letter-spaced text (tracking too wide)"
+    assert text.index("SKILLS") < text.index("PROJECTS")
+    assert "—" not in text
+    for value in (master["basics"]["name"], master["basics"]["email"], master["basics"]["phone"]):
+        assert value in text
+    for p in master["positions"]:
+        assert p["company"] in text
+
+
+@pytest.mark.parametrize("paper", sorted(PAGE_PT))
+@pytest.mark.parametrize("template", build.templates() + ["cover-letter"])
+def test_fit_figures_use_the_real_page(typst, master, tailor, template, paper):
+    t = {**tailor, "paper": paper}
+    data = build.letter_data(master, t, "Body.") if template == "cover-letter" else build.resume_data(master, t)
+    work = workdir(f"fit-{template}-{paper}")
+    layout = build.render(typst, f"{template}.typ", data, work / "out.pdf", work, "page")
+    assert page_size(work / "out.pdf") == pytest.approx(PAGE_PT[paper], abs=0.1)
+    assert layout["limit"] == pytest.approx(PAGE_PT[paper][1] - 36, abs=0.1)  # 0.5in bottom margin
 
 
 def test_committed_demo_pdfs_are_current(built):

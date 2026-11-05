@@ -6,8 +6,8 @@
 #let margin-y = 0.5in
 #let fonts = ("Calibri", "Arial", "Libertinus Serif")
 
-#let setup(size: 10pt, body) = {
-  set page(paper: "us-letter", margin: (x: margin-x, top: margin-y, bottom: margin-y))
+#let setup(size: 10pt, paper: "us-letter", body) = {
+  set page(paper: paper, margin: (x: margin-x, top: margin-y, bottom: margin-y))
   set text(font: fonts, size: size, fill: ink, lang: "en")
   set par(justify: false)
   body

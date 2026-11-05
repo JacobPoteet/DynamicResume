@@ -5,7 +5,7 @@
 #let d = json(sys.inputs.data)
 
 #set document(title: d.basics.name + " Cover Letter", author: d.basics.name)
-#set page(paper: "us-letter", margin: (x: margin-x, y: margin-y))
+#set page(paper: d.paper, margin: (x: margin-x, y: margin-y))
 #set text(font: ("Calibri", "Arial", "Libertinus Serif"), size: 11pt, fill: ink, lang: "en")
 #set par(leading: 0.7em, spacing: 1.35em, justify: false)
 
