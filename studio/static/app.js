@@ -164,12 +164,19 @@ async function deleteApp(a) {
   }
 }
 
-async function createApp(draft) {
+async function createApp(draft, save = false) {
   const body = { studio: $("#na-studio").value, role: $("#na-role").value, listing: $("#na-listing").value };
+  const link = $("#na-url").value.trim();
+  if (link || save) body.job = { ...(link ? { url: link } : {}), ...(save ? { saved: true } : {}) };
   try {
     if (draft && !body.listing.trim()) throw new Error("Paste the listing first so Claude has something to draft from.");
     const { name } = await api("POST", "/api/apps", body);
     if (draft) await api("POST", `/api/apps/${enc(name)}/draft`);
+    if (save) {
+      $("#new-dlg").close();
+      toast(`Saved ${esc(body.studio.trim())} to the Saved column`);
+      return refreshHome();
+    }
     location.hash = `#/app/${enc(name)}/${draft ? "listing" : "resume"}`;
   } catch (e) {
     $("#na-err").innerHTML = `<span class="pill bad">${esc(e.message)}</span>`;
@@ -297,6 +304,7 @@ function showSent(kind) {
   $("#right").innerHTML = `<div class="pv-head"><div class="fillline">
       <span class="pill good">As sent</span><span class="muted">${esc(file)}</span>${sub.stale ? `<span class="pill warn" title="The PDFs did not match the latest edits when they were frozen">Built before the last edits</span>` : ""}
       <span class="grow"></span><a href="${sentUrl(file)}" target="_blank">Open in a new tab</a></div></div>
+    <details class="sent-job"><summary>Job details</summary>${jobCard()}</details>
     <iframe class="sent-pdf" src="${sentUrl(file)}" title="${kind === "letter" ? "Cover letter" : "Resume"} as sent"></iframe>`;
   $("#unsubmit").onclick = unsubmit;
 }
@@ -1207,6 +1215,58 @@ async function saveLetter() {
   }
 }
 
+// ---------- job details (job.yaml; open after submitting) ----------
+
+const JOB_FIELDS = [["url", "Link", "https://…", "url"], ["location", "Location", "Remote, Austin TX"], ["salary", "Salary", "120k to 140k"],
+  ["source", "Source", "Careers page, LinkedIn, a friend"], ["referral", "Referral", "Who referred you"],
+  ["deadline", "Deadline", "", "date"], ["contact", "Contact", "Name, role, email"]];
+
+// Only http and https links are shown as links; anything else stays plain text.
+function safeUrl(u) {
+  try {
+    const x = new URL(String(u || "").trim());
+    return x.protocol === "http:" || x.protocol === "https:" ? x.href : "";
+  } catch { return ""; }
+}
+
+function jobCard() {
+  const j = S.app.job || {};
+  return `<section class="card job-card" id="job-card">
+    <div class="hd"><h2>Job details</h2><span class="grow"></span><span class="faint" style="font-size:12px">job.yaml</span></div>
+    <div class="bd stack">
+      ${j.saved && !S.app.submitted ? `<div class="hint">A saved lead. <button class="small primary" data-act="job-start">Start drafting</button></div>` : ""}
+      <div class="job-grid">${JOB_FIELDS.map(([k, label, ph, type]) => `<label class="field">${label}
+        <input data-job="${k}" type="${type || "text"}" value="${esc(j[k] || "")}" placeholder="${esc(ph || "")}"></label>`).join("")}</div>
+      <div id="job-link">${jobLink(j.url)}</div>
+    </div></section>`;
+}
+
+function jobLink(u) {
+  const href = safeUrl(u);
+  return href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">Open the posting ↗</a>`
+    : u ? `<span class="pill bad">The link must start with http:// or https://</span>` : "";
+}
+
+CLICK_ACTIONS["job-start"] = async () => {
+  S.app.job = { ...S.app.job };
+  delete S.app.job.saved;
+  queueListingSave("job");
+  await saveListing();
+  TABS[S.tab].left();
+  toast("Moved to Drafting");
+};
+
+document.addEventListener("input", (e) => {
+  const k = S.app && e.target.dataset?.job;
+  if (!k) return;
+  const v = e.target.value.trim();
+  S.app.job = { ...S.app.job };
+  if (v) S.app.job[k] = v;
+  else delete S.app.job[k];
+  if (k === "url") $("#job-link").innerHTML = jobLink(v);
+  queueListingSave("job");
+});
+
 // ---------- listing tab ----------
 
 TABS.listing = { left: renderListingLeft, preview: "resume" };
@@ -1234,6 +1294,7 @@ function renderListingLeft() {
           <p class="muted" style="font-size:12px;margin:6px 0 0">If you have done these things, add bullets on the <a href="#/master">Master</a> page, then tick them on the Resume tab.</p></div>` : ""}
       </div>
     </section>` : ""}
+    ${jobCard()}
     <section class="card">
       <div class="hd"><h2>Your notes about ${esc((S.app.tailor.target || {}).studio || "this studio")}</h2><span class="grow"></span>
         <span class="faint" style="font-size:12px">${S.init.example ? "examples/" : ""}data/studios.yaml, shared by every application to this studio</span></div>
@@ -1313,7 +1374,7 @@ function queueListingSave(what) {
 }
 async function saveListing() {
   clearTimeout(listingTimer);
-  if (!listingDirty.size || !S.app || ["listing.md", "listing.yaml", "studios.yaml"].some((f) => S.conflict?.includes(f))) return;
+  if (!listingDirty.size || !S.app || ["listing.md", "listing.yaml", "studios.yaml", "job.yaml"].some((f) => S.conflict?.includes(f))) return;
   const name = S.app.name;
   const body = { keep: S.keep };
   if (listingDirty.has("text")) body.text = S.app.listing;
@@ -1334,6 +1395,12 @@ async function saveListing() {
       const r = await api("PUT", `/api/apps/${enc(name)}/studio-notes`, { notes: S.app.studio_notes, keep: S.keep });
       if (clashed(r)) return;
       S.versions = { ...S.versions, ...r.versions };
+    }
+    if (dirty.includes("job")) {
+      const r = await api("PUT", `/api/apps/${enc(name)}/job`, { job: S.app.job || {}, keep: S.keep });
+      if (clashed(r)) return;
+      S.versions = { ...S.versions, ...r.versions };
+      if (S.app?.name === name) S.app.track = r.track;
     }
     if (body.text != null || body.spec) {
       const r = await api("PUT", `/api/apps/${enc(name)}/listing`, body);

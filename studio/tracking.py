@@ -110,11 +110,12 @@ def next_round(events):
     return sum(1 for e in events or [] if isinstance(e, dict) and e.get("stage") == "interview") + 1
 
 
-def summarize(events, submitted, today=None):
+def summarize(events, submitted, today=None, saved=False):
     """What the board needs to know about one application.
 
     `submitted` is the submitted.yaml mapping or None. Without it the application is still
-    being drafted, whatever its events say."""
+    being drafted, whatever its events say. `saved` (job.yaml) makes an unsent one a lead in the
+    Saved column instead; it is ignored once the application is submitted."""
     today = today or date.today()
     evs = ordered(events)
     applied = str(submitted.get("date")) if submitted else None
@@ -122,6 +123,8 @@ def summarize(events, submitted, today=None):
            "next": None, "closed_from": None, "days_to_close": None, "first_reply": None, "quiet": False,
            "days_quiet": None, "events": evs}
     if not submitted:
+        if saved:
+            out["column"] = "saved"
         return out
     column, since, prev = "applied", applied, "applied"
     for e in evs:

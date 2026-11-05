@@ -3,7 +3,7 @@
 // Stage changes are dated events in each application's tracking.yaml (see studio/tracking.py);
 // the Applied date is the day it was marked submitted. Uses the helpers in app.js.
 
-const COLUMNS = [["drafting", "Drafting"], ["applied", "Applied"], ["screen", "Screen"], ["interviewing", "Interviewing"], ["offer", "Offer"]];
+const COLUMNS = [["saved", "Saved"], ["drafting", "Drafting"], ["applied", "Applied"], ["screen", "Screen"], ["interviewing", "Interviewing"], ["offer", "Offer"]];
 const TRAYS = [["rejected", "Rejected"], ["ghosted", "Ghosted"], ["withdrew", "Withdrew"]];
 const COL_LABEL = Object.fromEntries([...COLUMNS, ...TRAYS]);
 const EV_LABEL = { applied: "Applied", screen: "Screen", interview: "Interview", offer: "Offer", rejected: "Rejected", ghosted: "Ghosted", withdrew: "Withdrew", note: "Note" };
@@ -65,6 +65,7 @@ async function showHome(mode = "board") {
   <dialog id="hist-dlg" class="hist-dlg" aria-labelledby="hist-h"></dialog>`);
   $("#new-app").onclick = () => $("#new-dlg").showModal();
   $("#na-create").onclick = () => createApp(false);
+  $("#na-save").onclick = () => createApp(false, true);
   if ($("#na-draft")) $("#na-draft").onclick = () => createApp(true);
   $("#na-cancel").onclick = () => $("#new-dlg").close();
   $("#hist-dlg").addEventListener("close", () => (T.hist = null));
@@ -78,6 +79,7 @@ function newAppForm() {
         <label class="field">Studio<input id="na-studio" placeholder="Sample Studio"></label>
         <label class="field">Role<input id="na-role" placeholder="Gameplay Designer"></label>
       </div>
+      <label class="field">Link to the posting (optional)<input id="na-url" type="url" placeholder="https://"></label>
       <label class="field">Job listing<textarea id="na-listing" rows="12" placeholder="Paste the full listing"></textarea></label>
       <div class="muted" style="font-size:12px">${S.init.claude
         ? "Drafting runs Claude Code in this repo with read-only access (a minute or two). It picks and orders bullets, writes a cover letter, and lists what the master cannot back up. Without drafting, every priority 1 bullet starts selected."
@@ -86,6 +88,7 @@ function newAppForm() {
       <div class="row dlg-ft">
         <span class="grow"></span>
         <button id="na-cancel" type="button">Cancel</button>
+        <button id="na-save" title="Keep it as a lead in the Saved column. Needs only a studio and a role.">Save for later</button>
         <button id="na-create">${S.init.claude ? "Create without drafting" : "Create"}</button>
         ${S.init.claude ? `<button class="primary" id="na-draft">Create and draft with Claude</button>` : ""}
       </div>
@@ -110,7 +113,7 @@ const findApp = (name) => T.apps.find((a) => a.name === name);
 
 function sorted(apps, col) {
   // Drafts by last edit; everything else by the latest thing that happened to it.
-  if (col === "drafting") return [...apps].sort((a, b) => b.updated - a.updated);
+  if (col === "drafting" || col === "saved") return [...apps].sort((a, b) => b.updated - a.updated);
   return [...apps].sort((a, b) => (b.track.updated || "").localeCompare(a.track.updated || "") || b.updated - a.updated);
 }
 
@@ -131,7 +134,9 @@ function strip() {
 function cardMeta(a) {
   const t = a.track;
   const bits = [];
-  if (t.column === "drafting") {
+  if (t.column === "saved") {
+    bits.push(`<span class="faint">Not started</span>`);
+  } else if (t.column === "drafting") {
     bits.push(pdfPill(a.pdfs));
   } else if (CLOSED.includes(t.column)) {
     const from = t.closed_from === "applied" ? "no reply" : `after ${COL_LABEL[t.closed_from].toLowerCase()}`;
@@ -143,6 +148,10 @@ function cardMeta(a) {
     if (t.next) bits.push(`<span class="pill" title="Scheduled">${esc(fmtWhen(t.next))}</span>`);
     if (t.quiet) bits.push(`<span class="pill warn" title="Nothing logged and nothing scheduled for ${dayCount(t.days_quiet)}">Quiet ${t.days_quiet} d</span><button class="small ghosted" data-ghost="${esc(a.name)}">Ghosted?</button>`);
   }
+  const j = a.job || {};
+  if (j.deadline) bits.push(`<span class="pill${j.deadline < todayIso() && !a.submitted ? " warn" : ""}" title="Application deadline">Due ${esc(fmtShort(j.deadline))}</span>`);
+  if (safeUrl(j.url)) bits.push(`<a class="tc-link" href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener noreferrer" title="${esc(j.url)}">Posting ↗</a>`);
+  if (t.column === "saved") bits.push(`<button class="small" data-start="${esc(a.name)}">Start drafting</button>`);
   return bits.join("");
 }
 
@@ -167,9 +176,9 @@ function renderBoard() {
   const open = TRAYS.some(([k]) => k === T.tray) ? T.tray : "";
   $("#tbody").innerHTML = `${strip()}
     <div class="board">${COLUMNS.map(([k, l]) => `
-      <section class="col" ${k === "drafting" ? "" : `data-drop="${k}"`} aria-label="${l}, ${by[k].length}">
+      <section class="col" ${k === "saved" ? "" : `data-drop="${k}"`} aria-label="${l}, ${by[k].length}">
         <h2>${l}<span>${by[k].length}</span></h2>
-        <div class="cards">${sorted(by[k], k).map(card).join("") || `<div class="col-empty">${k === "drafting" ? "Nothing in progress" : "Drop a card here"}</div>`}</div>
+        <div class="cards">${sorted(by[k], k).map(card).join("") || `<div class="col-empty">${k === "drafting" ? "Nothing in progress" : k === "saved" ? "No saved leads" : "Drop a card here"}</div>`}</div>
       </section>`).join("")}
     </div>
     <div class="trays">${TRAYS.map(([k, l]) => `
@@ -184,6 +193,8 @@ function wireBoard() {
   const body = $("#tbody");
   body.onclick = (e) => {
     const t = e.target;
+    if (t.closest("[data-start]")) return startDrafting(findApp(t.closest("[data-start]").dataset.start));
+    if (t.closest("a[href]")) return;  // the posting link opens on its own
     if (t.closest("[data-ghost]")) return openEvent(findApp(t.closest("[data-ghost]").dataset.ghost), { stage: "ghosted" });
     if (t.closest("[data-tray]")) {
       const k = t.closest("[data-tray]").dataset.tray;
@@ -236,8 +247,25 @@ function wireBoard() {
   };
 }
 
+// Clears the saved flag in job.yaml, which moves a lead to Drafting.
+async function startDrafting(a) {
+  if (!a) return;
+  const job = { ...a.job };
+  delete job.saved;
+  try {
+    const r = await api("PUT", `/api/apps/${enc(a.name)}/job`, { job });
+    if (r.conflict) return toast("job.yaml changed on disk. Reload the page, then try again.", true, 6000);
+    await refreshHome();
+    toast(`${esc(appLabel(a))} moved to Drafting`);
+  } catch (e) {
+    toast(esc(e.message), true);
+  }
+}
+
 function dropOn(a, col) {
   const from = a.track.column;
+  if (from === "saved") return col === "drafting" ? startDrafting(a) : toast("Start drafting first. Then move it to Applied when you send it.", true, 6000);
+  if (col === "drafting") return from === "drafting" ? undefined : toast("Cards move forward from Drafting. Delete the entry to correct a stage.", true, 6000);
   if (from === "drafting" && col !== "applied") return toast("Move it to Applied first. That marks it submitted and freezes the PDFs you sent.", true, 6000);
   if (col === from && col !== "interviewing") return;
   openEvent(a, { stage: COLUMN_EV[col] });
@@ -461,6 +489,18 @@ function openHistory(name) {
   if (!dlg.open) dlg.showModal();
 }
 
+// The job's link, deadline and the rest, from job.yaml. Edit them on the Listing tab.
+function jobDetail(a) {
+  const j = a.job || {};
+  const rows = [];
+  if (j.url) rows.push(["Link", safeUrl(j.url) ? `<a href="${esc(safeUrl(j.url))}" target="_blank" rel="noopener noreferrer">${esc(j.url)}</a>` : esc(j.url)]);
+  if (j.deadline) rows.push(["Deadline", esc(fmtDay(j.deadline))]);
+  for (const [k, label] of [["location", "Location"], ["salary", "Salary"], ["source", "Source"], ["referral", "Referral"], ["contact", "Contact"]]) {
+    if (j[k]) rows.push([label, esc(j[k])]);
+  }
+  return rows.length ? `<dl class="h-dl job-dl">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : "";
+}
+
 function eventDetail(e) {
   const rows = [];
   if (e.scheduled) rows.push(["Scheduled", esc(fmtWhen(e.scheduled))]);
@@ -493,7 +533,7 @@ function renderHistory() {
   const a = findApp(T.hist);
   const dlg = $("#hist-dlg");
   if (!a) return dlg.close();
-  const t = a.track, sub = a.submitted, drafting = t.column === "drafting";
+  const t = a.track, sub = a.submitted, saved = t.column === "saved", drafting = t.column === "drafting" || saved;
   const sent = (k) => `/files/apps/${enc(a.name)}/submitted/${enc(sub[k])}`;
   const row = (day, cls, title, body, tools = "") => `<li class="h-ev ${cls}"><span class="h-date">${esc(fmtShort(day))}</span>
     <div class="h-body"><div class="h-line"><b>${title}</b>${tools}</div>${body}</div></li>`;
@@ -503,7 +543,7 @@ function renderHistory() {
     rows.push(row(e.date, `st-${EV_COLUMN[e.stage] || "note"}`, `${EV_LABEL[e.stage]}${e.round ? ` · round ${e.round}` : ""}`, eventDetail(e),
       `<button class="ghost small h-edit" data-edit="${e.i}" aria-label="Edit ${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))}">Edit</button>`));
   }
-  const status = drafting ? "Still drafting"
+  const status = saved ? "Saved lead, not started" : drafting ? "Still drafting"
     : CLOSED.includes(t.column) ? `${COL_LABEL[t.column]} ${t.closed_from === "applied" ? "with no reply" : `after ${COL_LABEL[t.closed_from].toLowerCase()}`}${t.days_to_close != null ? `, ${dayCount(t.days_to_close)} after applying` : ""}`
     : `${COL_LABEL[t.column]} since ${fmtShort(t.since)}${t.next ? ` · Next: ${fmtWhen(t.next)}` : ""}`;
   const open = [{ label: "Resume", href: `#/app/${enc(a.name)}/resume` }, { label: "Cover letter", href: `#/app/${enc(a.name)}/letter` },
@@ -519,10 +559,12 @@ function renderHistory() {
     <div class="dr-bd stack">
       ${t.quiet ? `<div class="hint warn">Nothing logged or scheduled for ${dayCount(t.days_quiet)}. <button class="small" data-act="stage" data-arg="ghosted">Mark ghosted</button></div>` : ""}
       <div class="row wrap h-acts">
-        ${drafting ? `<button class="primary" data-act="stage" data-arg="applied">Move to Applied</button>` : menu("Move to", moveItems(t), { cls: "primary" })}
+        ${saved ? `<button class="primary" data-start="${esc(a.name)}">Start drafting</button>`
+          : drafting ? `<button class="primary" data-act="stage" data-arg="applied">Move to Applied</button>` : menu("Move to", moveItems(t), { cls: "primary" })}
         ${drafting ? "" : `<button data-act="note">Add note</button>`}
         ${menu("Open", open)}
       </div>
+      ${jobDetail(a)}
       ${rows.length ? `<ol class="hist">${rows.join("")}</ol>` : `<div class="muted">Nothing logged yet. Move it to Applied when you send it.</div>`}
     </div>`;
   $("#h-close", dlg).onclick = () => dlg.close();
@@ -530,6 +572,7 @@ function renderHistory() {
     if (e.target === dlg) return dlg.close();  // the backdrop
     const b = e.target.closest("button");
     if (!b) return;
+    if (b.dataset.start) return startDrafting(a);
     if (b.dataset.act === "stage") return openEvent(a, { stage: b.dataset.arg });
     if (b.dataset.act === "note") return openEvent(a, { stage: "note" });
     if (b.dataset.act === "delete") return deleteApp(a);  // closes this once the board reloads without it
