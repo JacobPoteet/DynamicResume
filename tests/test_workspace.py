@@ -9,6 +9,7 @@ import yaml
 
 import build
 from conftest import EXAMPLE_APP, REPO
+from studio.workspace import folder_name
 
 
 def fake_pdfs(ws, name=EXAMPLE_APP, content=b"%PDF-1.7 sent"):
@@ -403,8 +404,17 @@ def test_create_app_starts_from_priority_one_bullets(ws):
     t = build.load_yaml(ws.apps_dir / name / "tailor.yaml")
     assert "rr-lead" in t["positions"]["pixel-forge-sr"]["bullets"]
     assert "rr-mentor" not in t["positions"]["pixel-forge-sr"]["bullets"]
-    with pytest.raises(build.BuildError, match="already exists"):
-        ws.create_app("Test Forge", "Combat Designer", "")
+
+
+def test_a_repeat_studio_and_role_gets_a_numbered_folder(ws):
+    first = ws.create_app("Test Forge", "Combat Designer", "one")
+    second = ws.create_app("Test Forge", "Combat Designer", "two")
+    third = ws.create_app("Test Forge", "Combat Designer", "three")
+    assert (first, second, third) == ("test-forge-combat-designer", "test-forge-combat-designer-2",
+                                      "test-forge-combat-designer-3")
+    assert "two" in ws.load_app(second)["listing"] and "one" in ws.load_app(first)["listing"]
+    assert ws.load_app(second)["tailor"]["target"] == {"studio": "Test Forge", "role": "Combat Designer"}
+    assert folder_name("Test Forge", "Combat Designer") == first  # the base name does not change
 
 
 def test_create_app_never_picks_a_variant_with_its_partner(ws):
@@ -584,8 +594,7 @@ def test_a_name_of_only_symbols_gets_a_generated_folder(ws):
     name = ws.create_app("!!!", "???", "")
     assert re.fullmatch(r"app-[0-9a-f]{8}", name)
     ws.app_dir(name)
-    with pytest.raises(build.BuildError, match="already exists"):
-        ws.create_app("!!!", "???", "")
+    assert ws.create_app("!!!", "???", "") == f"{name}-2"
     resume, _ = build.output_names(ws.master(), {"target": {"studio": "!!!"}}, ws.apps_dir / name)
     assert resume.endswith(f"_Resume_{name.replace('-', '_')}.pdf")
 

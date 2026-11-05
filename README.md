@@ -21,6 +21,8 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 ## Features
 
+**Finding and reusing applications.** Board and List have a search box (studio or role) and a stage menu, and List sorts by studio, stage, applied date or last update. New application can start from an existing one: it copies the bullets, wording, headline and template (and the cover letter if you tick it), but never tracking, job details or PDFs. Applying again to the same studio and role makes a numbered folder (`-2`, `-3`).
+
 **Drafting with Claude.** Paste a listing under New application and choose Create and draft with Claude. The app runs Claude Code headlessly in the repo with read-only tools. It reads the master and the listing, picks and orders bullets, writes a headline and a cover letter, breaks the listing into requirements, and lists anything the master cannot back up. Every bullet id it returns is checked against the master before anything is written.
 
 **Requirement coverage.** Each requirement from the listing becomes a chip on the Resume tab, green when a selected bullet backs it up. Unselected bullets are ranked by how well they match the listing, so filling a gap is one click.

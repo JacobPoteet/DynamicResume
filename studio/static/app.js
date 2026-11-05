@@ -166,13 +166,22 @@ async function deleteApp(a) {
 
 async function createApp(draft) {
   const body = { studio: $("#na-studio").value, role: $("#na-role").value, listing: $("#na-listing").value };
+  const from = $("#na-from")?.value;
+  if (from) Object.assign(body, { start_from: from, copy_letter: $("#na-letter").checked });
+  // A repeat studio and role makes a numbered folder, so a second click would make a second application.
+  const buttons = ["#na-create", "#na-draft"].map((id) => $(id)).filter(Boolean);
+  buttons.forEach((b) => (b.disabled = true));
   try {
     if (draft && !body.listing.trim()) throw new Error("Paste the listing first so Claude has something to draft from.");
-    const { name } = await api("POST", "/api/apps", body);
-    if (draft) await api("POST", `/api/apps/${enc(name)}/draft`);
+    const { name, dropped } = await api("POST", "/api/apps", body);
+    // The application exists from here on: a draft that fails to start must not lead to a retry that makes another.
+    const notes = dropped?.length ? [`Left out ${plural(dropped.length, "item")} the master no longer has: ${esc(dropped.join(", "))}.`] : [];
+    if (draft) await api("POST", `/api/apps/${enc(name)}/draft`).catch((e) => notes.push(`Created, but the draft did not start: ${esc(e.message)}`));
     location.hash = `#/app/${enc(name)}/${draft ? "listing" : "resume"}`;
+    if (notes.length) toast(notes.join("<br>"), true, 12000);
   } catch (e) {
     $("#na-err").innerHTML = `<span class="pill bad">${esc(e.message)}</span>`;
+    buttons.forEach((b) => (b.disabled = false));
   }
 }
 
