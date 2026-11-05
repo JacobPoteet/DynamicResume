@@ -169,6 +169,23 @@ def plain(node):
     return json.loads(json.dumps(node, default=str))
 
 
+def _places(master):
+    """(owner id, bullet id) for every bullet in a master."""
+    owners = (master.get("positions") or []) + (master.get("projects") or [])
+    return {(o.get("id"), b.get("id")) for o in owners for b in o.get("bullets") or []}
+
+
+def _selected(tailor):
+    """(owner id, bullet id) for every bullet a tailor names. A project given as a plain list,
+    or with no bullet list, shows all of its bullets, so it names none."""
+    out = set()
+    for group in (tailor.get("positions"), tailor.get("projects")):
+        if isinstance(group, dict):
+            for owner, v in group.items():
+                out.update((owner, i) for i in (v or {}).get("bullets") or [])
+    return out
+
+
 # ---------- workspace ----------
 
 class Workspace:
@@ -204,6 +221,30 @@ class Workspace:
         build.validate_master(data)
         with build.collect_warnings():
             build.resolve(data, {}, True)
+        self.check_removals(data)
+
+    def check_removals(self, data):
+        """Refuse a save that takes a bullet away from where an unsubmitted application uses
+        it (deleted, renamed, or moved to another position): that application could not build."""
+        try:
+            old = self.master()
+        except yaml.YAMLError:
+            return  # the file on disk does not parse; saving is how it gets fixed
+        now = _places(data)
+        gone, ids = _places(old) - now, {i for _, i in now}
+        used = {}
+        for app in self.app_dirs():
+            if build.submission(app):
+                continue
+            t = self._read_yaml(app / "tailor.yaml") or {}
+            chosen, overrides = _selected(t), t.get("overrides") or {}
+            for owner, i in sorted(gone):
+                if (owner, i) in chosen or (i in overrides and i not in ids):
+                    used.setdefault(i, []).append(app.name)
+        if used:
+            names = "; ".join(f"{i} (used by {', '.join(apps)})" for i, apps in sorted(used.items()))
+            raise BuildError(f"Not saved: this takes away bullets that applications still use: {names}. "
+                             "Untick each one in those applications first, or put it back.")
 
     def save_master(self, data):
         """Write plain master data, merged into the existing file to keep its comments."""
@@ -236,14 +277,7 @@ class Workspace:
             if build.submission(app):
                 continue  # its submitted/ folder keeps its own master, so the live one is free to change
             t = self._read_yaml(app / "tailor.yaml") or {}
-            ids = set((t.get("overrides") or {}).keys())
-            for v in (t.get("positions") or {}).values():
-                ids.update((v or {}).get("bullets") or [])
-            projects = t.get("projects") or {}
-            if isinstance(projects, dict):
-                for v in projects.values():
-                    ids.update((v or {}).get("bullets") or [])
-            for i in ids:
+            for i in set(t.get("overrides") or {}) | {i for _, i in _selected(t)}:
                 usage.setdefault(i, []).append(app.name)
         return usage
 

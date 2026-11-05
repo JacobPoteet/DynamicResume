@@ -1,5 +1,6 @@
 """Application folders: submitting, snapshots, round-trip YAML, gaps and studio notes."""
 import pytest
+import yaml
 
 import build
 from conftest import EXAMPLE_APP
@@ -132,6 +133,78 @@ def test_save_master_refuses_an_invalid_master(ws):
     with pytest.raises(build.BuildError):
         ws.save_master(m)
     assert ws.master_text() == before
+
+
+# ----- removing a bullet an application uses -----
+
+def without(master, bullet):
+    """The master minus one bullet."""
+    for o in master["positions"] + master.get("projects", []):
+        o["bullets"] = [b for b in o.get("bullets") or [] if b["id"] != bullet]
+    return master
+
+
+def save_both_ways(ws):
+    """The Bullets view's save and the Raw YAML save."""
+    return [ws.save_master, lambda m: ws.save_master_text(yaml.safe_dump(m, sort_keys=False))]
+
+
+@pytest.mark.parametrize("path", [0, 1], ids=["bullets", "raw"])
+def test_saving_refuses_to_remove_a_selected_bullet(ws, path):
+    before = ws.master_text()
+    with pytest.raises(build.BuildError, match=rf"rr-boosts \(used by {EXAMPLE_APP}\)"):
+        save_both_ways(ws)[path](without(ws.master(), "rr-boosts"))
+    assert ws.master_text() == before
+
+
+@pytest.mark.parametrize("path", [0, 1], ids=["bullets", "raw"])
+def test_saving_refuses_to_remove_an_overridden_bullet(ws, path):
+    t = ws.apps_dir / EXAMPLE_APP / "tailor.yaml"
+    tailor = build.load_yaml(t)
+    unused = next(b["id"] for b in ws.master()["positions"][0]["bullets"]
+                  if b["id"] not in tailor["positions"]["pixel-forge-sr"]["bullets"])
+    tailor["overrides"][unused] = "Reworded"
+    ws.save_tailor(EXAMPLE_APP, tailor)
+    with pytest.raises(build.BuildError, match=rf"{unused} \(used by {EXAMPLE_APP}\)"):
+        save_both_ways(ws)[path](without(ws.master(), unused))
+
+
+def test_saving_refuses_to_rename_or_move_a_selected_bullet(ws):
+    m = ws.master()
+    next(b for b in m["positions"][0]["bullets"] if b["id"] == "rr-boosts")["id"] = "rr-renamed"
+    with pytest.raises(build.BuildError, match="rr-boosts"):
+        ws.save_master(m)
+    m = ws.master()
+    b = next(b for b in m["positions"][0]["bullets"] if b["id"] == "rr-boosts")
+    m["positions"][0]["bullets"].remove(b)
+    m["positions"][1]["bullets"].append(b)
+    with pytest.raises(build.BuildError, match="rr-boosts"):
+        ws.save_master(m)
+
+
+def test_saving_may_remove_a_bullet_nothing_uses(ws):
+    tailor = build.load_yaml(ws.apps_dir / EXAMPLE_APP / "tailor.yaml")
+    unused = next(b["id"] for b in ws.master()["positions"][0]["bullets"]
+                  if b["id"] not in tailor["positions"]["pixel-forge-sr"]["bullets"])
+    ws.save_master(without(ws.master(), unused))
+    assert unused not in ws.master_text()
+
+
+def test_a_submitted_application_does_not_block_a_removal(ws):
+    fake_pdfs(ws)
+    ws.submit_app(EXAMPLE_APP, "2026-10-22")
+    ws.save_master(without(ws.master(), "rr-boosts"))
+    assert "rr-boosts" not in ws.master_text()
+
+
+def test_an_unknown_id_already_in_a_tailor_does_not_block_other_saves(ws):
+    t = build.load_yaml(ws.apps_dir / EXAMPLE_APP / "tailor.yaml")
+    t["positions"]["pixel-forge-sr"]["bullets"].append("edited-in-by-hand")
+    ws.save_tailor(EXAMPLE_APP, t)
+    m = ws.master()
+    m["positions"][0]["bullets"][0]["text"] = "Reworded"
+    ws.save_master(m)
+    assert "edited-in-by-hand" in ws.bullet_usage()
 
 
 # ----- gaps and studio notes -----

@@ -31,7 +31,7 @@ Needs `typst` (`winget install Typst.Typst`) and `pip install -r requirements.tx
 
 With no `data/master.yaml`, the app opens on a first-run screen that offers to copy the demo master there, and `build`, `check` and `new` print a clear `ERROR:` line.
 
-The app has four areas: Applications (a board of every application by stage, with List, Timeline and Stats views and New application; see Application tracking below; deleting from List takes a snapshot first), the editor (Resume, Cover letter and Listing tabs beside a live page preview, with Build PDFs and Mark submitted), Master (edit bullets, short texts, tags, priorities, position details and skills, or the raw YAML; Save validates before writing, refuses to delete a bullet an application uses, then shows which applications the change affects; a Gaps view ranks what listings asked for that the master lacks), and Snapshots. The app and the CLI read and write the same files, so either can be used at any time. The app saves `tailor.yaml` on every change and rebuilds the preview; it notices edits made to the files outside the app (by Claude or a text editor) within a couple of seconds and reloads. It writes YAML with ruamel round-trip, so comments and layout in `master.yaml` and `tailor.yaml` survive, and every master save keeps the previous file in `snapshots/master-history/`.
+The app has four areas: Applications (a board of every application by stage, with List, Timeline and Stats views and New application; see Application tracking below; deleting from List takes a snapshot first), the editor (Resume, Cover letter and Listing tabs beside a live page preview, with Build PDFs and Mark submitted), Master (edit bullets, short texts, tags, priorities, position details and skills, or the raw YAML; Save validates before writing, and the server refuses a save (Bullets or Raw YAML) that removes, renames or moves a bullet an unsubmitted application selects or overrides, then shows which applications the change affects; a Gaps view ranks what listings asked for that the master lacks), and Snapshots. The app and the CLI read and write the same files, so either can be used at any time. The app saves `tailor.yaml` on every change and rebuilds the preview; it notices edits made to the files outside the app (by Claude or a text editor) within a couple of seconds and reloads. It writes YAML with ruamel round-trip, so comments and layout in `master.yaml` and `tailor.yaml` survive, and every master save keeps the previous file in `snapshots/master-history/`.
 
 ## Submitted applications
 
@@ -129,7 +129,7 @@ short: [bullet ids]                           # use the master's `short` text fo
 cover_letter: {greeting, closing, date}       # all optional
 ```
 
-An unknown id or `paper` value, or a bullet selected with its `variant_of` partner, is a build error. A redraft keeps the application's `paper`. An override or `short` id that matches no selected bullet, or a top-level key the build does not use, is a warning.
+An unknown id or `paper` value, or a bullet selected with its `variant_of` partner, is a build error; the Resume tab shows an unknown bullet, position, project or game as a "Not in the master" row with Remove. A redraft keeps the application's `paper`. An override or `short` id that matches no selected bullet, or a top-level key the build does not use, is a warning.
 
 ## tracking.yaml schema
 

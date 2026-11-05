@@ -605,7 +605,7 @@ function renderResumeLeft() {
       <label class="field wide">Headline (one line under your name)<input data-field="headline" value="${esc(t.headline)}"
         placeholder="${esc((m.basics || {}).headline || "Your title | two to four focus areas from the listing")}"></label>
     </div>`;
-  html += reqsBlock();
+  html += reqsBlock() + unknownBlock();
   if ((m.games || []).length) html += sec("Games", (t.template || S.init.default_template) === "resume-games" ? "" : "only resume-games shows this section") + gamesBlock();
   html += sec("Experience", "drag to reorder (Alt+Up/Down from the keyboard), double-click a bullet to edit") +m.positions.map((p) => ownerBlock(p, "positions")).join("");
   if ((m.projects || []).length) html += sec("Personal projects", "selected projects print in this order") + projectOrder().map((p) => ownerBlock(p, "projects")).join("");
@@ -629,12 +629,36 @@ function sec(title, hint = "") {
   return `<div class="sec"><h2>${esc(title)}</h2>${hint ? `<span class="faint" style="font-size:12px">${esc(hint)}</span>` : ""}</div>`;
 }
 
+// Ids in the tailor that the master does not have (an edit made outside the app). The build
+// stops on them, so each gets a row with a way out. A missing bullet sits in its position's list.
+function missingRow(kind, owner, id, what) {
+  const attrs = what ? `data-act="drop-unknown" data-kind="${kind}" data-id="${esc(id)}"` : `data-act="drop-missing"`;
+  return `<li class="b missing" data-kind="${kind}" data-owner="${esc(owner)}" data-id="${esc(id)}">
+    <span class="grip"></span>
+    <div class="body"><span class="pill bad">Not in the master</span> <code>${esc(id)}</code>
+      <div class="meta">This application selects this ${what || "bullet"}, but the master does not have it${what ? "" : " here"}, so the resume cannot build. Remove it from this application, or add it back to the master.</div></div>
+    <span class="acts"><button class="ghost small" ${attrs} aria-label="Remove ${esc(id)} from this application">Remove</button></span>
+  </li>`;
+}
+
+function unknownBlock() {
+  const t = S.app.tailor;
+  const lacks = (list) => (id) => !(list || []).some((x) => x.id === id);
+  const rows = [
+    ...Object.keys(t.positions || {}).filter(lacks(S.master.positions)).map((id) => missingRow("positions", "", id, "position")),
+    ...Object.keys(t.projects || {}).filter(lacks(S.master.projects)).map((id) => missingRow("projects", "", id, "project")),
+    ...(t.games || []).filter(lacks(S.master.games)).map((id) => missingRow("games", "", id, "game")),
+  ];
+  return rows.length ? sec("Not in the master") + `<div class="pos"><ul>${rows.join("")}</ul></div>` : "";
+}
+
 function ownerBlock(p, kind) {
   const sel = selected(kind, p.id);
   const on = sel !== null;
   const bullets = p.bullets || [];
   const byId = Object.fromEntries(bullets.map((b) => [b.id, b]));
   const chosen = on ? sel.map((id) => byId[id]).filter(Boolean) : [];
+  const missing = on ? sel.filter((id) => !byId[id]) : [];
   const rest = sortRest(bullets.filter((b) => !on || !sel.includes(b.id)));
   const title = kind === "positions" ? `${p.company} · ${p.title}` : p.name;
   const sub = kind === "positions"
@@ -643,6 +667,7 @@ function ownerBlock(p, kind) {
   const focus = S.ui.focusReq != null ? requirements()[S.ui.focusReq] : null;
   const open = on || S.ui.expanded[p.id] || (focus && bullets.some((b) => reqMatches(focus, b)));
   const rows = !open ? "" : `<ul data-kind="${kind}" data-owner="${esc(p.id)}">
+    ${missing.map((id) => missingRow(kind, p.id, id)).join("")}
     ${chosen.map((b) => bulletRow(b, kind, p.id, true)).join("")}
     ${on && rest.length ? `<li class="divider">Not selected</li>` : ""}
     ${rest.map((b) => bulletRow(b, kind, p.id, false)).join("")}
@@ -924,6 +949,21 @@ document.addEventListener("click", async (e) => {
 });
 
 const CLICK_ACTIONS = {};
+
+CLICK_ACTIONS["drop-missing"] = (el) => {
+  const t = S.app.tailor;
+  const { kind, owner, id } = el.closest(".b").dataset;
+  setBulletSelected(kind, owner, id, false);
+  if (t.overrides) delete t.overrides[id];
+  if (t.short) t.short = t.short.filter((x) => x !== id);
+  changed();
+};
+CLICK_ACTIONS["drop-unknown"] = (el) => {
+  const t = S.app.tailor;
+  if (el.dataset.kind === "games") t.games = t.games.filter((x) => x !== el.dataset.id);
+  else delete t[el.dataset.kind][el.dataset.id];
+  changed();
+};
 
 document.addEventListener("keydown", (e) => {
   // Alt+Up/Down on a selected bullet's checkbox moves it, the keyboard version of dragging.
@@ -1318,8 +1358,8 @@ function renderMasterBody() {
   const body = $("#mbody");
   if (M.mode === "gaps") return renderGaps();
   if (M.mode === "raw") {
-    body.innerHTML = `<p class="muted" style="margin:0;font-size:13px">The whole file, comments included. Saving checks that it parses and builds before writing.
-      Bullet ids are referenced by applications: do not rename one that is in use.</p>
+    body.innerHTML = `<p class="muted" style="margin:0;font-size:13px">The whole file, comments included. Saving checks that it parses and builds before writing,
+      and refuses to remove, rename or move a bullet an unsubmitted application uses.</p>
       <textarea class="raw" id="raw-master" spellcheck="false">${esc(M.rawText ?? M.text)}</textarea>`;
     return updateSavebar();
   }
