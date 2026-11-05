@@ -208,6 +208,7 @@ class Workspace:
         self.studios_path = self.master_path.parent / "studios.yaml"
         self.snap_dir = self.home / "snapshots" / ("example" if example else "")
         self.history_dir = self.snap_dir / "master-history"
+        self.seen = {}  # path -> what the file held when the page last loaded or saved it
 
     # ----- master -----
 
@@ -379,14 +380,24 @@ class Workspace:
                 "positions": positions}
 
     def load_app(self, name):
+        """An application's files for the editor. A submitted one opens as it was sent: each
+        file comes from submitted/, or the live folder if an older submitted/ lacks it. `master`
+        is that frozen master, or None when the editor should use the live one."""
         app = self.app_dir(name)
-        tailor = self._read_yaml(app / "tailor.yaml") or {}
+        sent = build.submission(app)
+
+        def source(filename):
+            frozen = app / build.SUBMITTED / filename
+            return frozen if sent and frozen.exists() else app / filename
+
+        tailor = self._read_yaml(source("tailor.yaml")) or {}
+        master = self._read_yaml(source("master.yaml"))
         return {
-            "name": name, "tailor": tailor,
-            "listing": self._read_text(app / "listing.md") or "",
-            "listing_spec": self._read_yaml(app / "listing.yaml"),
-            "letter": self._read_text(app / "cover-letter.md"),
-            "pdfs": self.pdf_status(app, tailor), "submitted": build.submission(app),
+            "name": name, "tailor": tailor, "master": master,
+            "listing": self._read_text(source("listing.md")) or "",
+            "listing_spec": self._read_yaml(source("listing.yaml")),
+            "letter": self._read_text(source("cover-letter.md")),
+            "pdfs": self.pdf_status(app, tailor, master), "submitted": sent,
             "studio_notes": self.studio_notes((tailor.get("target") or {}).get("studio")),
             "track": self.track(app),
         }
@@ -526,7 +537,52 @@ class Workspace:
     def save_tailor(self, name, tailor):
         path = self.apps_dir / name / "tailor.yaml"
         doc = rt_load(path.read_text(encoding="utf-8")) if path.exists() else None
+        before, after = self._studio(doc), self._studio(tailor)
         path.write_text(rt_dump(merge(doc, tailor)), encoding="utf-8", newline="\n")
+        if doc is not None and before != after:
+            self._follow_studio_rename(path.parent, before, after)
+
+    @staticmethod
+    def _studio(tailor):
+        target = tailor.get("target") if isinstance(tailor, dict) else None
+        return str((target or {}).get("studio") or "").strip()
+
+    def _follow_studio_rename(self, app, before, after):
+        """PDF names and studio notes both hang off the studio name, so bring them along. A
+        submitted application is left alone: what was sent stays as it was."""
+        if build.submission(app):
+            return
+        try:
+            master = self.master()
+            old, new = ({"target": {"studio": s}} for s in (before, after))
+            for src, dest in zip(build.output_names(master, old, app), build.output_names(master, new, app)):
+                self._rename_pdf(app / src, app / dest)
+            self._carry_studio_notes(app, before, after)
+        except BuildError as e:
+            build.warn(f"Renamed the studio, but could not update its PDFs or notes: {e}")
+
+    @staticmethod
+    def _rename_pdf(src, dest):
+        if src.name == dest.name or not src.exists():
+            return
+        if dest.exists() and not src.samefile(dest):  # samefile: a change of case on Windows
+            build.warn(f"Kept {src.name}: {dest.name} already exists. Build PDFs to replace it.")
+            return
+        try:
+            src.rename(dest)
+        except OSError as e:
+            build.warn(f"Could not rename {src.name} to {dest.name} ({e.strerror}). Close it if it is open, then Build PDFs.")
+
+    def _carry_studio_notes(self, app, before, after):
+        """Move the notes to the new name if it has none. They stay under the old name too
+        while another application still uses it."""
+        notes = self.studio_notes(before)
+        if not before or not after or before.lower() == after.lower() or not notes or self.studio_notes(after):
+            return
+        self.save_studio_notes(after, notes)
+        others = (self._read_yaml(a / "tailor.yaml") for a in self.app_dirs() if a != app)
+        if not any(self._studio(t).lower() == before.lower() for t in others):
+            self.save_studio_notes(before, "")
 
     def save_listing_spec(self, name, spec):
         path = self.app_dir(name) / "listing.yaml"
@@ -584,6 +640,32 @@ class Workspace:
         elif notes:
             entries.append({"studio": studio, "notes": notes})
         self.studios_path.write_text(rt_dump(merge(doc, entries)), encoding="utf-8", newline="\n")
+        self.seen[self.studios_path] = self.studios_path.read_bytes()
+
+    # ----- outside edits -----
+
+    def _watched(self, app, filename):
+        return self.studios_path if filename == "studios.yaml" else app / filename
+
+    def mark_seen(self, name, files=(*FROZEN, "studios.yaml")):
+        """Remember what these files hold now: the page just loaded them or wrote them."""
+        app = self.app_dir(name)
+        for f in files:
+            p = self._watched(app, f)
+            self.seen[p] = p.read_bytes() if p.exists() else None
+
+    def outside_edits(self, name, files, keep=None):
+        """Which of these files changed on disk since the page last loaded or saved them (a text
+        editor, Claude Code, a draft). Saving over one would lose that change, so the server asks
+        first. `keep` names files the person chose to replace anyway. A file not seen since the
+        server started passes, since there is nothing to compare it with."""
+        app = self.app_dir(name)
+        out = []
+        for f in files:
+            p = self._watched(app, f)
+            if f not in (keep or ()) and p in self.seen and self.seen[p] != (p.read_bytes() if p.exists() else None):
+                out.append(f)
+        return out
 
     # ----- snapshots -----
 

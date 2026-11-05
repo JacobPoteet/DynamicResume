@@ -11,7 +11,10 @@ import pytest
 
 import build
 from build import ROOT, BuildError
+from conftest import EXAMPLE_APP
+from studio import server
 from studio.server import Handler, Studio, init, open_server
+from test_workspace import fake_pdfs
 
 
 def test_a_busy_port_stops_the_server():
@@ -96,3 +99,114 @@ def test_serves_build_previews(handler):
 def test_refuses_everything_else(handler, rel):
     with pytest.raises(BuildError):
         serve(handler, rel)
+
+
+# ----- saving over outside edits -----
+
+@pytest.fixture
+def studio(ws):
+    return SimpleNamespace(ws=ws, versions=lambda name=None: {}, preview=lambda *a, **k: {"ok": True})
+
+
+def tailor_of(ws):
+    return build.load_yaml(ws.apps_dir / EXAMPLE_APP / "tailor.yaml")
+
+
+def edit_outside(ws, filename, text="edited outside: true\n"):
+    path = ws.studios_path if filename == "studios.yaml" else ws.apps_dir / EXAMPLE_APP / filename
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_autosave_does_not_overwrite_an_outside_edit(studio, ws):
+    server.get_app(studio, {}, {}, EXAMPLE_APP)
+    t = tailor_of(ws)
+    path = edit_outside(ws, "tailor.yaml")
+    r = server.put_tailor(studio, {"tailor": t}, {}, EXAMPLE_APP)
+    assert r == {"conflict": ["tailor.yaml"]}
+    assert path.read_text(encoding="utf-8") == "edited outside: true\n"
+
+
+def test_keep_my_edit_replaces_the_outside_edit(studio, ws):
+    server.get_app(studio, {}, {}, EXAMPLE_APP)
+    t = tailor_of(ws)
+    edit_outside(ws, "tailor.yaml")
+    r = server.put_tailor(studio, {"tailor": t, "keep": ["tailor.yaml"]}, {}, EXAMPLE_APP)
+    assert "conflict" not in r and tailor_of(ws)["target"] == t["target"]
+    assert "conflict" not in server.put_tailor(studio, {"tailor": t}, {}, EXAMPLE_APP)  # settled
+
+
+def test_loading_again_takes_in_the_outside_edit(studio, ws):
+    server.get_app(studio, {}, {}, EXAMPLE_APP)
+    t = tailor_of(ws)
+    t["headline"] = "From outside"
+    ws.save_tailor(EXAMPLE_APP, t)  # stands in for a text editor; a draft saves the same way
+    assert server.put_tailor(studio, {"tailor": tailor_of(ws)}, {}, EXAMPLE_APP)["conflict"] == ["tailor.yaml"]
+    assert server.get_app(studio, {}, {}, EXAMPLE_APP)["tailor"]["headline"] == "From outside"
+    assert "conflict" not in server.put_tailor(studio, {"tailor": t}, {}, EXAMPLE_APP)
+
+
+def test_the_pages_own_saves_never_conflict(studio, ws):
+    """Autosaves overlap while typing: a second one goes out before the first has answered."""
+    server.get_app(studio, {}, {}, EXAMPLE_APP)
+    for headline in ("One", "Two", "Three"):
+        t = tailor_of(ws)
+        t["headline"] = headline
+        assert "conflict" not in server.put_tailor(studio, {"tailor": t}, {}, EXAMPLE_APP)
+    assert "conflict" not in server.put_letter(studio, {"text": "A"}, {}, EXAMPLE_APP)
+    assert "conflict" not in server.put_letter(studio, {"text": "B"}, {}, EXAMPLE_APP)
+    assert "conflict" not in server.put_studio_notes(studio, {"notes": "A"}, {}, EXAMPLE_APP)
+    assert "conflict" not in server.put_studio_notes(studio, {"notes": "B"}, {}, EXAMPLE_APP)
+    assert "conflict" not in server.put_listing(studio, {"text": "A", "spec": {"studio": "A"}}, {}, EXAMPLE_APP)
+    assert "conflict" not in server.put_listing(studio, {"text": "B", "spec": {"studio": "B"}}, {}, EXAMPLE_APP)
+
+
+@pytest.mark.parametrize(("filename", "call", "body"), [
+    ("cover-letter.md", server.put_letter, {"text": "mine"}),
+    ("listing.md", server.put_listing, {"text": "mine"}),
+    ("listing.yaml", server.put_listing, {"spec": {"studio": "mine"}}),
+    ("studios.yaml", server.put_studio_notes, {"notes": "mine"}),
+])
+def test_every_autosaved_file_is_guarded(studio, ws, filename, call, body):
+    server.get_app(studio, {}, {}, EXAMPLE_APP)
+    path = edit_outside(ws, filename, "- edited outside\n")
+    assert call(studio, body, {}, EXAMPLE_APP) == {"conflict": [filename]}
+    assert path.read_text(encoding="utf-8") == "- edited outside\n"
+    assert "conflict" not in call(studio, {**body, "keep": [filename]}, {}, EXAMPLE_APP)
+
+
+def test_saving_one_file_does_not_swallow_an_outside_edit_to_another(studio, ws):
+    server.get_app(studio, {}, {}, EXAMPLE_APP)
+    edit_outside(ws, "listing.md")
+    assert "conflict" not in server.put_tailor(studio, {"tailor": tailor_of(ws)}, {}, EXAMPLE_APP)
+    assert server.put_listing(studio, {"text": "mine"}, {}, EXAMPLE_APP) == {"conflict": ["listing.md"]}
+
+
+def test_a_file_not_seen_since_the_server_started_passes(studio, ws):
+    edit_outside(ws, "cover-letter.md")
+    assert "conflict" not in server.put_letter(studio, {"text": "mine"}, {}, EXAMPLE_APP)
+
+
+# ----- renaming the studio through the save route -----
+
+def test_the_save_route_reports_renamed_pdfs_and_notes(studio, ws):
+    fake_pdfs(ws)
+    server.get_app(studio, {}, {}, EXAMPLE_APP)
+    notes = ws.studio_notes("Sample Studio")
+    t = tailor_of(ws)
+    t["target"]["studio"] = "Lantern Works"
+    r = server.put_tailor(studio, {"tailor": t}, {}, EXAMPLE_APP)
+    assert r["pdfs"]["resume"]["exists"] and r["pdfs"]["resume"]["file"].endswith("_Lantern_Works.pdf")
+    assert r["studio_notes"] == notes and r["warnings"] == []
+    # The rename rewrote studios.yaml itself, so that is not an outside edit.
+    assert "conflict" not in server.put_studio_notes(studio, {"notes": "More."}, {}, EXAMPLE_APP)
+
+
+def test_the_save_route_refuses_to_rename_a_submitted_application(studio, ws):
+    app, resume, letter = fake_pdfs(ws)
+    ws.submit_app(EXAMPLE_APP, "2026-10-22")
+    t = tailor_of(ws)
+    t["target"]["studio"] = "Lantern Works"
+    with pytest.raises(BuildError, match="Unsubmit it"):
+        server.put_tailor(studio, {"tailor": t}, {}, EXAMPLE_APP)
+    assert (app / resume).exists() and (app / "submitted" / resume).exists() and tailor_of(ws)["target"]["studio"] != "Lantern Works"

@@ -425,6 +425,135 @@ def test_app_names_cannot_escape_the_folder(ws, name):
         ws.app_dir(name)
 
 
+# ----- renaming the studio -----
+
+def rename_studio(ws, new, name=EXAMPLE_APP):
+    t = build.load_yaml(ws.apps_dir / name / "tailor.yaml")
+    t["target"]["studio"] = new
+    ws.save_tailor(name, t)
+    return t
+
+
+def test_renaming_the_studio_keeps_the_pdfs_and_notes(ws):
+    app, resume, letter = fake_pdfs(ws)
+    notes = ws.studio_notes("Sample Studio")
+    rename_studio(ws, "Lantern Works")
+    loaded = ws.load_app(EXAMPLE_APP)
+    assert loaded["pdfs"]["resume"]["exists"] and loaded["pdfs"]["letter"]["exists"]
+    assert loaded["pdfs"]["resume"]["file"].endswith("_Resume_Lantern_Works.pdf")
+    assert not (app / resume).exists() and not (app / letter).exists()
+    assert loaded["studio_notes"] == notes
+    assert ws.studio_notes("Sample Studio") == ""  # moved, not copied
+
+
+def test_a_rename_leaves_notes_another_application_still_uses(ws):
+    notes = ws.studio_notes("Sample Studio")
+    other = rename_studio(ws, "Sample Studio", "harbor-light-games-senior-combat-designer")
+    assert other["target"]["studio"] == "Sample Studio"
+    rename_studio(ws, "Lantern Works")
+    assert ws.studio_notes("Lantern Works") == notes
+    assert ws.studio_notes("Sample Studio") == notes
+
+
+def test_a_rename_never_replaces_the_new_names_notes(ws):
+    old = ws.studio_notes("Sample Studio")
+    ws.save_studio_notes("Lantern Works", "Met their team at a jam.")
+    rename_studio(ws, "Lantern Works")
+    assert ws.studio_notes("Lantern Works") == "Met their team at a jam."
+    assert ws.studio_notes("Sample Studio") == old
+
+
+def test_a_rename_that_only_changes_case_still_finds_the_pdfs(ws):
+    app, _, _ = fake_pdfs(ws)
+    notes = ws.studio_notes("Sample Studio")
+    rename_studio(ws, "SAMPLE STUDIO")
+    assert ws.load_app(EXAMPLE_APP)["studio_notes"] == notes
+    resume = ws.load_app(EXAMPLE_APP)["pdfs"]["resume"]["file"]
+    assert resume in [p.name for p in app.glob("*.pdf")]
+
+
+def test_a_rename_does_not_overwrite_a_pdf_already_there(ws):
+    app, resume, _ = fake_pdfs(ws)
+    t = build.load_yaml(app / "tailor.yaml")
+    t["target"]["studio"] = "Lantern Works"
+    target = build.output_names(ws.master(), t, app)[0]
+    (app / target).write_bytes(b"%PDF-1.7 older")
+    with build.collect_warnings() as warnings:
+        ws.save_tailor(EXAMPLE_APP, t)
+    assert (app / target).read_bytes() == b"%PDF-1.7 older" and (app / resume).exists()
+    assert any("already exists" in w for w in warnings)
+
+
+def test_a_rename_leaves_a_submitted_application_alone(ws):
+    app, resume, letter = fake_pdfs(ws)
+    ws.submit_app(EXAMPLE_APP, "2026-10-22")
+    frozen = {p.name: p.read_bytes() for p in (app / "submitted").iterdir()}
+    notes = ws.studio_notes("Sample Studio")
+    rename_studio(ws, "Lantern Works")
+    assert {p.name: p.read_bytes() for p in (app / "submitted").iterdir()} == frozen
+    assert (app / resume).exists() and (app / letter).exists()
+    assert ws.studio_notes("Sample Studio") == notes and ws.studio_notes("Lantern Works") == ""
+
+
+def test_saving_without_a_rename_touches_neither_pdfs_nor_notes(ws):
+    app, resume, _ = fake_pdfs(ws)
+    before = ws.studios_path.read_bytes()
+    t = build.load_yaml(app / "tailor.yaml")
+    t["headline"] = "Gameplay Designer | Combat"
+    ws.save_tailor(EXAMPLE_APP, t)
+    assert (app / resume).exists() and ws.studios_path.read_bytes() == before
+
+
+# ----- a submitted application opens as it was sent -----
+
+def edit_after_sending(ws, app):
+    m = ws.master()
+    first = m["positions"][0]["bullets"][0]
+    sent = first["text"]
+    first["text"] = "Edited after sending."
+    ws.save_master(m)
+    t = build.load_yaml(app / "tailor.yaml")
+    t["headline"] = "Edited after sending"
+    ws.save_tailor(EXAMPLE_APP, t)
+    ws.save_text(EXAMPLE_APP, "cover-letter.md", "Edited after sending.")
+    ws.save_text(EXAMPLE_APP, "listing.md", "Edited after sending.")
+    (app / "listing.yaml").write_text("studio: Edited after sending\n", encoding="utf-8")
+    return sent
+
+
+def test_a_submitted_application_loads_what_was_sent(ws):
+    app, _, _ = fake_pdfs(ws)
+    before = ws.load_app(EXAMPLE_APP)
+    ws.submit_app(EXAMPLE_APP, "2026-10-22")
+    sent = edit_after_sending(ws, app)
+    loaded = ws.load_app(EXAMPLE_APP)
+    assert loaded["master"]["positions"][0]["bullets"][0]["text"] == sent
+    assert ws.master()["positions"][0]["bullets"][0]["text"] == "Edited after sending."
+    for key in ("tailor", "letter", "listing", "listing_spec"):
+        assert loaded[key] == before[key], key
+        assert "Edited after sending" not in str(loaded[key]), key
+
+
+def test_a_submitted_application_falls_back_to_live_files_it_lacks(ws):
+    app, _, _ = fake_pdfs(ws)
+    ws.submit_app(EXAMPLE_APP, "2026-10-22")
+    edit_after_sending(ws, app)
+    for f in ("master.yaml", "tailor.yaml", "cover-letter.md", "listing.md", "listing.yaml"):
+        (app / "submitted" / f).unlink()
+    loaded = ws.load_app(EXAMPLE_APP)
+    assert loaded["master"] is None  # the editor then uses the live master
+    assert loaded["tailor"]["headline"] == "Edited after sending"
+    assert loaded["letter"] == "Edited after sending."
+    assert loaded["listing"] == "Edited after sending."
+    assert loaded["listing_spec"]["studio"] == "Edited after sending"
+
+
+def test_an_unsubmitted_application_loads_the_live_files(ws):
+    app, _, _ = fake_pdfs(ws)
+    ws.save_text(EXAMPLE_APP, "cover-letter.md", "Live letter.")
+    loaded = ws.load_app(EXAMPLE_APP)
+    assert loaded["master"] is None and loaded["letter"] == "Live letter."
+
 # ----- names in any script -----
 
 def test_a_non_latin_application_gets_a_usable_folder_and_pdf_names(ws):

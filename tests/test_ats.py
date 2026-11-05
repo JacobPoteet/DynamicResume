@@ -4,12 +4,14 @@ import copy
 import os
 import re
 import shutil
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
 import build
 from conftest import EXAMPLE_APP, REPO
+from studio import server
 
 pytestmark = pytest.mark.typst
 APP = REPO / "examples" / "applications" / EXAMPLE_APP
@@ -207,3 +209,22 @@ def test_committed_demo_pdfs_are_current(built):
                                         build.load_yaml(APP / "tailor.yaml"), APP)
     assert words(pdf_text(APP / resume)) == words(pdf_text(built["resume"])), f"demo resume PDF is stale: {REBUILD}"
     assert words(pdf_text(APP / letter)) == words(pdf_text(built["letter"])), f"demo cover letter PDF is stale: {REBUILD}"
+
+
+def test_save_to_master_then_check_reports_a_longer_bullet(typst, ws):
+    """The two calls Save to master makes in the editor: write the master, then run the check."""
+    app = ws.apps_dir / EXAMPLE_APP
+    studio = SimpleNamespace(ws=ws, typst=typst, example=False, versions=lambda name=None: {})
+    build.build_app(typst, app, False)  # the baseline the check compares with
+    row = next(r for r in server.check(studio, {}, {})["rows"] if r["name"] == EXAMPLE_APP)
+    assert not row["changed"] and not row["over"]
+
+    used = build.load_yaml(app / "tailor.yaml")["positions"]
+    position, picked = next(iter(used.items()))
+    m = ws.master()
+    bullet = next(b for p in m["positions"] if p["id"] == position for b in p["bullets"] if b["id"] == picked["bullets"][0])
+    bullet["text"] = " ".join([bullet["text"]] * 25)
+    server.put_master(studio, {"master": m}, {})
+
+    row = next(r for r in server.check(studio, {}, {})["rows"] if r["name"] == EXAMPLE_APP)
+    assert row["changed"] and row["over"] and row["after"]["pages"] > 1

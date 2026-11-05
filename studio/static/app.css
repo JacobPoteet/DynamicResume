@@ -313,7 +313,10 @@ button.icon { padding: 2px 8px; line-height: 1.2; }
 button.ghost.quiet-danger:hover { color: var(--bad); background: var(--bad-soft); }
 
 /* ---------- editor ---------- */
-.editor { display: grid; grid-template-rows: auto 1fr; height: calc(100vh - var(--top)); }
+.editor { display: flex; flex-direction: column; height: calc(100vh - var(--top)); }
+.editor > .panes { flex: 1; }
+.editor > #impact { flex: none; max-height: 30vh; overflow: auto; margin: 8px 12px 0; }
+.conflict { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; background: var(--warn-soft); color: var(--warn); font-size: 13px; }
 .ebar {
   display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--panel);
   border-bottom: 1px solid var(--line);

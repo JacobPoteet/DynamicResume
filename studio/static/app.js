@@ -62,6 +62,10 @@ const S = {
   tab: "resume",
   previews: {},    // kind -> preview response
   versions: null,  // file mtimes last seen, to notice outside edits
+  conflict: null,  // files the server would not save over because they changed on disk
+  keep: null,      // files the person chose to replace anyway
+  outsideChange: false,  // files changed on disk and the reload is waiting for an edit to finish
+  outsideNoted: false,   // the person has been told so
   ui: { editing: null, expanded: {}, lastSel: {}, focusReq: null },
 };
 // Tabs can veto reloading after an outside edit (unsaved typing, a running draft).
@@ -80,9 +84,18 @@ function route() {
     }
     M.draft = null;
   }
+  if (S.conflict && !(a === "app" && b === S.app?.name)) {
+    if (!confirm("Your latest edit is not saved because the file changed on disk. Leave and discard the edit?")) {
+      history.replaceState(null, "", lastHash);
+      return;
+    }
+    dropUnsaved();
+    S.conflict = null;
+  }
   lastHash = location.hash;
   const section = a === "master" ? "master" : a === "snapshots" ? "snapshots" : "apps";
   document.querySelectorAll(".top nav a").forEach((n) => n.classList.toggle("on", n.dataset.nav === section));
+  commitStudio();
   saveNow();
   saveLetter();
   saveListing();
@@ -189,12 +202,14 @@ async function loadApp(name) {
   const [app, m, v] = await Promise.all([
     api("GET", `/api/apps/${enc(name)}`), api("GET", "/api/master"), api("GET", `/api/versions?app=${enc(name)}`),
   ]);
-  S.master = m.master;
+  S.master = app.master || m.master;  // a submitted application renders from its frozen copy
   S.usage = m.usage;
   S.app = app;
   normalizeTailor(app.tailor);
   S.previews = {};
   S.versions = v;
+  S.conflict = S.keep = null;
+  S.outsideChange = S.outsideNoted = false;
   S.ui.editing = null;
   S.ui.focusReq = null;
   if (S.init.claude) checkDraft(name);
@@ -228,9 +243,13 @@ async function showEditor(name, tab) {
       <nav class="tabs">${tabs.map(([k, l]) => `<a href="#/app/${enc(name)}/${k}" class="${k === tab ? "on" : ""}" ${k === tab ? `aria-current="page"` : ""}>${l}</a>`).join("")}</nav>
       <span class="grow"></span>${tools}
     </div>
+    <div class="conflict" id="conflict" role="alert" hidden></div>
+    <section class="card" id="impact" hidden></section>
     <div class="panes"><div class="pane left" id="left"></div><div class="pane right" id="right"></div></div>
   </div>`);
   renderTitle();
+  renderConflict();
+  renderImpact();
   TABS[tab].left();
   const kind = TABS[tab].preview;
   if (sub) return showSent(kind);
@@ -283,6 +302,7 @@ function showSent(kind) {
 }
 
 async function markSubmitted() {
+  if (S.conflict) return toast(CHOOSE_FIRST, true);
   await Promise.all([saveNow(), saveLetter(), saveListing()]);
   const p = S.app.pdfs;
   if (!p.resume.exists) return toast("Build the PDFs you are sending first, then mark the application submitted.", true);
@@ -325,6 +345,7 @@ function renderPdfState() {
 }
 
 async function finalize() {
+  if (S.conflict) return toast(CHOOSE_FIRST, true);
   const btn = $("#finalize");
   await Promise.all([saveNow(), saveLetter(), saveListing()]);
   btn.disabled = true;
@@ -355,6 +376,7 @@ function describeFill(f) {
 let saveTimer = null;
 let saveSeq = 0;
 let savePending = false;
+let savesInFlight = 0;
 
 function queueSave(delay = 300) {
   savePending = true;
@@ -365,18 +387,25 @@ function queueSave(delay = 300) {
 
 async function saveNow() {
   clearTimeout(saveTimer);
-  if (!savePending || !S.app) return;
+  if (!savePending || !S.app || S.conflict?.includes("tailor.yaml")) return;
   savePending = false;
   const seq = ++saveSeq;
   const name = S.app.name;
   status("Saving…", "busy");
   setBusy(true);
+  savesInFlight++;
   try {
-    const r = await api("PUT", `/api/apps/${enc(name)}/tailor`, { tailor: cleanTailor(S.app.tailor) });
+    const r = await api("PUT", `/api/apps/${enc(name)}/tailor`, { tailor: cleanTailor(S.app.tailor), keep: S.keep });
+    if (r.conflict) {
+      if (S.app?.name === name) savePending = true;
+      return showConflict(r.conflict, name);
+    }
     S.versions = { ...S.versions, ...r.versions };
     if (seq !== saveSeq || !S.app || S.app.name !== name) return;
     S.previews.resume = r.preview;
-    S.app.pdfs = r.pdfs;
+    if (r.pdfs) S.app.pdfs = r.pdfs;  // a studio rename changes the file names
+    if (r.studio_notes != null && !listingDirty.has("notes")) S.app.studio_notes = r.studio_notes;
+    if (r.warnings?.length) toast(r.warnings.map(esc).join("<br>"), true, 9000);
     renderPdfState();
     if (TABS[S.tab]?.preview === "resume") renderPreview("resume");
     else refreshPreview(TABS[S.tab].preview);
@@ -385,11 +414,64 @@ async function saveNow() {
     toast(esc(e.message), true);
     status("Save failed", "bad");
     setBusy(false);
+  } finally {
+    savesInFlight--;
   }
 }
 
 window.addEventListener("beforeunload", (e) => {
+  commitStudio();
   if (savePending) { saveNow(); e.preventDefault(); }
+});
+
+// ----- outside edits: the server will not save over a file that changed on disk -----
+
+const CHOOSE_FIRST = "A file changed on disk. Choose which version to keep first.";
+
+function showConflict(files, name) {
+  setBusy(false);
+  status("Not saved", "bad");
+  if (S.app?.name !== name) {
+    return toast(`${files.map(esc).join(", ")} for ${esc(name)} changed on disk, so your last edit there was not saved.`, true, 9000);
+  }
+  S.conflict = [...new Set([...(S.conflict || []), ...files])];
+  renderConflict();
+}
+
+function renderConflict() {
+  const el = $("#conflict");
+  if (!el) return;
+  el.hidden = !S.conflict;
+  el.innerHTML = !S.conflict ? "" : `<span class="grow"><strong>${S.conflict.map(esc).join(", ")} changed on disk while you were editing.</strong>
+      Your latest edit here is not saved yet.</span>
+    <button data-conflict="disk" title="Discard your unsaved edit here and load what is on disk">Use the file on disk</button>
+    <button class="primary" data-conflict="mine" title="Save what this page shows, replacing the outside change">Keep my edit</button>`;
+}
+
+function dropUnsaved() {
+  clearTimeout(saveTimer);
+  clearTimeout(letterTimer);
+  clearTimeout(listingTimer);
+  savePending = letterPending = false;
+  listingDirty.clear();
+}
+
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-conflict]");
+  if (!b || !S.conflict || !S.app) return;
+  if (b.dataset.conflict === "disk") {
+    dropUnsaved();
+    await loadApp(S.app.name);
+    showEditor(S.app.name, S.tab);
+    status("");
+    return toast("Loaded the files from disk");
+  }
+  S.keep = S.conflict;
+  S.conflict = null;
+  S.outsideChange = false;
+  renderConflict();
+  await Promise.all([saveNow(), saveLetter(), saveListing()]);
+  S.keep = null;
 });
 
 // ---------- preview ----------
@@ -832,6 +914,7 @@ document.addEventListener("change", (e) => {
   const t = S.app.tailor;
   const act = el.dataset.act;
   const li = el.closest(".b");
+  if (el.dataset.field === "studio") return commitStudio();
   if (act === "bullet") {
     setBulletSelected(li.dataset.kind, li.dataset.owner, li.dataset.id, el.checked);
     if (el.checked) untickVariant(li.dataset.kind, li.dataset.owner, li.dataset.id);
@@ -855,9 +938,9 @@ document.addEventListener("input", (e) => {
   const el = e.target;
   if (!S.app || !el.closest("#left") || !el.dataset.field) return;
   const t = S.app.tailor;
-  if (el.dataset.field === "studio" || el.dataset.field === "role") {
+  if (el.dataset.field === "role") {
     t.target = t.target || {};
-    t.target[el.dataset.field] = el.value;
+    t.target.role = el.value;
     renderTitle();
   } else if (FIELD_SETTERS[el.dataset.field]) {
     FIELD_SETTERS[el.dataset.field](el.value);
@@ -866,6 +949,19 @@ document.addEventListener("input", (e) => {
   }
   queueSave(600);
 });
+
+// The studio name is saved when the field is left, not on each keystroke. Saving a new name
+// renames the PDFs and moves the studio's notes, and a half-typed name could match another studio.
+function commitStudio() {
+  const el = $("#left [data-field=studio]");
+  if (!el || !S.app) return;
+  const t = S.app.tailor;
+  if (el.value === ((t.target || {}).studio ?? "")) return;
+  t.target = t.target || {};
+  t.target.studio = el.value;
+  renderTitle();
+  queueSave(0);
+}
 
 const FIELD_SETTERS = {};
 FIELD_SETTERS.headline = (v) => {
@@ -902,12 +998,16 @@ document.addEventListener("click", async (e) => {
     S.ui.editing = null;
     changed(backToRow);
   } else if (act === "master-save") {
-    const b = findBullet(li.dataset.kind, li.dataset.owner, li.dataset.id);
     const text = li.querySelector("textarea").value.replace(/\s+/g, " ").trim();
     if (!text) return;
-    const before = b.text;
-    b.text = text;
+    let b, before;
     try {
+      // Edit the file as it is now: master.yaml may have changed on disk since this page loaded it.
+      S.master = (await api("GET", "/api/master")).master;
+      b = findBullet(li.dataset.kind, li.dataset.owner, li.dataset.id);
+      if (!b) throw new Error("This bullet is no longer in master.yaml.");
+      before = b.text;
+      b.text = text;
       const r = await api("PUT", "/api/master", { master: S.master });
       S.master = r.master;
       S.usage = r.usage;
@@ -918,8 +1018,10 @@ document.addEventListener("click", async (e) => {
       const others = (S.usage[b.id] || []).filter((n) => n !== S.app.name);
       toast(`Saved to master.${others.length ? ` Also used by ${others.map(esc).join(", ")}.` : ""}`);
       changed(backToRow);
+      await saveNow();  // the check reads this application's tailor from disk
+      runImpact();
     } catch (err) {
-      b.text = before;
+      if (b) b.text = before;
       toast(esc(err.message), true);
     }
   } else if (act === "short") {
@@ -1077,13 +1179,18 @@ document.addEventListener("input", (e) => {
 
 async function saveLetter() {
   clearTimeout(letterTimer);
-  if (!letterPending || !S.app) return;
+  if (!letterPending || !S.app || S.conflict?.includes("cover-letter.md")) return;
   letterPending = false;
   const name = S.app.name;
   status("Saving…", "busy");
   setBusy(true);
+  savesInFlight++;
   try {
-    const r = await api("PUT", `/api/apps/${enc(name)}/letter`, { text: S.app.letter });
+    const r = await api("PUT", `/api/apps/${enc(name)}/letter`, { text: S.app.letter, keep: S.keep });
+    if (r.conflict) {
+      if (S.app?.name === name) letterPending = true;
+      return showConflict(r.conflict, name);
+    }
     S.versions = { ...S.versions, ...r.versions };
     if (S.app?.name !== name) return;
     S.previews.letter = r.preview;
@@ -1095,6 +1202,8 @@ async function saveLetter() {
     toast(esc(e.message), true);
     status("Save failed", "bad");
     setBusy(false);
+  } finally {
+    savesInFlight--;
   }
 }
 
@@ -1204,26 +1313,39 @@ function queueListingSave(what) {
 }
 async function saveListing() {
   clearTimeout(listingTimer);
-  if (!listingDirty.size || !S.app) return;
-  const body = {};
+  if (!listingDirty.size || !S.app || ["listing.md", "listing.yaml", "studios.yaml"].some((f) => S.conflict?.includes(f))) return;
+  const name = S.app.name;
+  const body = { keep: S.keep };
   if (listingDirty.has("text")) body.text = S.app.listing;
   if (listingDirty.has("spec")) body.spec = S.app.listing_spec;
   const notes = listingDirty.has("notes");
+  const dirty = [...listingDirty];
   listingDirty.clear();
   status("Saving…", "busy");
+  savesInFlight++;
   try {
+    const clashed = (r) => {
+      if (!r.conflict) return false;
+      if (S.app?.name === name) dirty.forEach((d) => listingDirty.add(d));
+      showConflict(r.conflict, name);
+      return true;
+    };
     if (notes) {
-      const r = await api("PUT", `/api/apps/${enc(S.app.name)}/studio-notes`, { notes: S.app.studio_notes });
+      const r = await api("PUT", `/api/apps/${enc(name)}/studio-notes`, { notes: S.app.studio_notes, keep: S.keep });
+      if (clashed(r)) return;
       S.versions = { ...S.versions, ...r.versions };
     }
     if (body.text != null || body.spec) {
-      const r = await api("PUT", `/api/apps/${enc(S.app.name)}/listing`, body);
+      const r = await api("PUT", `/api/apps/${enc(name)}/listing`, body);
+      if (clashed(r)) return;
       S.versions = { ...S.versions, ...r.versions };
     }
     status("Saved", "ok");
   } catch (e) {
     toast(esc(e.message), true);
     status("Save failed", "bad");
+  } finally {
+    savesInFlight--;
   }
 }
 
@@ -1253,6 +1375,7 @@ function renderDraftBox() {
 }
 
 CLICK_ACTIONS["draft-start"] = async () => {
+  if (S.conflict) return toast(CHOOSE_FIRST, true);
   if (S.app.listing_spec?.drafted && !confirm("Redraft? This replaces the bullet choices, overrides and cover letter. A snapshot is taken first.")) return;
   await saveNow();
   await saveListing();
@@ -1572,7 +1695,7 @@ document.addEventListener("change", (e) => {
 
 document.addEventListener("click", async (e) => {
   const el = e.target.closest("[data-mact]");
-  if (!el || !el.closest(".master")) return;
+  if (!el || !el.closest(".master, #impact")) return;
   const act = el.dataset.mact;
   const card = el.closest("[data-kind]");
   const owner = card && M.draft[card.dataset.kind][Number(card.dataset.oi)];
@@ -1667,6 +1790,7 @@ document.addEventListener("keydown", (e) => {
     if (masterDirty() && !M.saving) saveMaster();
   } else if (S.app) {
     e.preventDefault();
+    commitStudio();
     saveNow();
     saveLetter();
     saveListing();
@@ -1730,7 +1854,7 @@ async function restoreSnapshot(name) {
 // Poll file times so edits made in a text editor or by Claude Code show up here.
 let serverLost = false;
 async function pollVersions() {
-  if (document.hidden || savePending || !S.versions) return;
+  if (document.hidden || savePending || savesInFlight || S.conflict || !S.versions) return;
   const name = S.app?.name;
   let v;
   try {
@@ -1746,6 +1870,7 @@ async function pollVersions() {
     if (v.master) masterAppeared();
     return;
   }
+  if (savePending || savesInFlight || S.conflict) return;  // a save started meanwhile: its write is not an outside edit
   const moved = Object.keys(v).some((k) => k in S.versions && v[k] > S.versions[k] + 0.001);
   S.versions = { ...S.versions, ...v };
   if (moved && !S.app && location.hash.startsWith("#/master")) {
@@ -1759,9 +1884,14 @@ async function pollVersions() {
     if (!document.querySelector("dialog[open], .menu:popover-open")) refreshHome();
     return;
   }
-  if (!moved || !S.app || S.app.name !== name) return;
+  if (!S.app || S.app.name !== name) return;
+  if (moved) S.outsideChange = true;
+  if (!S.outsideChange) return;
+  // Not in the middle of an edit. The change stays pending and loads on a later poll, once the
+  // edit is done. If the edit saves first, the server refuses it and offers a choice.
   if (S.ui.editing || ON_OUTSIDE_EDIT.blocked()) {
-    toast("Files changed on disk. Finish your edit, then reload the page to see them.");
+    if (!S.outsideNoted) toast("Files changed on disk. They load here when you finish this edit.", false, 7000);
+    S.outsideNoted = true;
     return;
   }
   await loadApp(name);
