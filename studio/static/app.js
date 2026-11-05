@@ -1264,6 +1264,8 @@ document.addEventListener("input", (e) => {
   if (v) S.app.job[k] = v;
   else delete S.app.job[k];
   if (k === "url") $("#job-link").innerHTML = jobLink(v);
+  // The server refuses a bad link, so hold job saves until it is valid; the pill says why.
+  if (S.app.job.url && !safeUrl(S.app.job.url)) return;
   queueListingSave("job");
 });
 
@@ -1294,7 +1296,7 @@ function renderListingLeft() {
           <p class="muted" style="font-size:12px;margin:6px 0 0">If you have done these things, add bullets on the <a href="#/master">Master</a> page, then tick them on the Resume tab.</p></div>` : ""}
       </div>
     </section>` : ""}
-    ${jobCard()}
+    ${S.app.submitted ? "" : jobCard()}
     <section class="card">
       <div class="hd"><h2>Your notes about ${esc((S.app.tailor.target || {}).studio || "this studio")}</h2><span class="grow"></span>
         <span class="faint" style="font-size:12px">${S.init.example ? "examples/" : ""}data/studios.yaml, shared by every application to this studio</span></div>
@@ -1409,6 +1411,7 @@ async function saveListing() {
     }
     status("Saved", "ok");
   } catch (e) {
+    if (S.app?.name === name) dirty.forEach((d) => listingDirty.add(d));  // nothing is dropped: the next save retries
     toast(esc(e.message), true);
     status("Save failed", "bad");
   } finally {
@@ -1444,6 +1447,11 @@ function renderDraftBox() {
 CLICK_ACTIONS["draft-start"] = async () => {
   if (S.conflict) return toast(CHOOSE_FIRST, true);
   if (S.app.listing_spec?.drafted && !confirm("Redraft? This replaces the bullet choices, overrides and cover letter. A snapshot is taken first.")) return;
+  if (S.app.job?.saved) {
+    S.app.job = { ...S.app.job };
+    delete S.app.job.saved;
+    queueListingSave("job");
+  }
   await saveNow();
   await saveListing();
   try {
