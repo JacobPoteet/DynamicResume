@@ -414,7 +414,7 @@ def open_server(port):
 def serve(example, port, open_browser=True):
     srv = open_server(port)
     Handler.studio = Studio(example)
-    url =f"http://127.0.0.1:{port}/"
+    url = f"http://127.0.0.1:{port}/"
     print(f"DynamicResume editor{' (example data)' if example else ''}: {url}   Ctrl+C to stop")
     if not example and HOME != ROOT:
         print(f"Data and applications: {HOME}")
