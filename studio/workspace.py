@@ -11,7 +11,7 @@ import re
 import shutil
 import unicodedata
 import zipfile
-from datetime import datetime
+from datetime import date, datetime
 
 import yaml
 from ruamel.yaml import YAML
@@ -20,7 +20,7 @@ from ruamel.yaml.error import YAMLError
 
 import build
 from build import ROOT, BuildError
-from studio import job, send, tracking
+from studio import ics, job, send, tracking
 from studio.changes import compare
 
 HISTORY_KEEP = 50
@@ -664,7 +664,54 @@ class Workspace:
         return plain(data.get("events") or []) if isinstance(data, dict) else []
 
     def track(self, app, today=None):
-        return tracking.summarize(self.events(app), build.submission(app), today, saved=self.job(app).get("saved", False))
+        data = self._read_yaml(app / tracking.FILE)
+        data = plain(data) if isinstance(data, dict) else {}
+        details = self.job(app)
+        return tracking.summarize(data.get("events") or [], build.submission(app), today, saved=details.get("saved", False),
+                                  follow_up=data.get("follow_up"), deadline=details.get("deadline"))
+
+    def set_follow_up(self, name, value):
+        """Set the application's reminder in tracking.yaml, or clear it with a blank date. It is
+        not an event: clearing it leaves no trace in the history."""
+        app = self.app_dir(name)
+        if not build.submission(app):
+            raise BuildError(f"{name} has not been sent yet. A follow-up starts once it is.")
+        new = tracking.clean_follow_up(value)
+        path, doc = self._events_doc(app)
+        doc.pop("follow_up", None)
+        if new:
+            doc.insert(0, "follow_up", CommentedMap({**new, "date": tracking.day(new["date"])}))
+        path.write_text(rt_dump(doc), encoding="utf-8", newline="\n")
+        return {"follow_up": new, "track": self.track(app)}
+
+    # ----- calendar files (downloaded by the person; the app never sends them anywhere) -----
+
+    def _calendar_row(self, app, e):
+        t = self._read_yaml(app / "tailor.yaml") or {}
+        target = t.get("target") or {}
+        return {**e, "app": app.name, "studio": target.get("studio") or app.name, "role": target.get("role", ""),
+                "url": self.job(app).get("url")}
+
+    def event_calendar(self, name, index):
+        """One scheduled event as calendar text, and a name for the file."""
+        app = self.app_dir(name)
+        e = next((x for x in self.track(app)["events"] if x["i"] == index), None)
+        if not e:
+            raise BuildError(f"{name} has no event {index}")
+        if not e.get("scheduled"):
+            raise BuildError("that event has no scheduled date")
+        return ics.calendar([self._calendar_row(app, e)]), f"{name}-{e['stage']}{e.get('round') or ''}.ics"
+
+    def upcoming_calendar(self, today=None):
+        """Every scheduled event still ahead on an open application, as calendar text."""
+        today = today or date.today()
+        rows = []
+        for app in self.app_dirs():
+            t = self.track(app, today)
+            if t["applied"] and t["column"] not in tracking.CLOSED:
+                rows += [self._calendar_row(app, e) for e in t["events"]
+                         if e.get("scheduled") and tracking.when(e["scheduled"]).date() >= today]
+        return ics.calendar(rows)
 
     # ----- job details (link, location, salary, ...; open after submitting, like tracking) -----
 

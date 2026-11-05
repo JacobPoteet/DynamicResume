@@ -177,6 +177,20 @@ label.check[hidden], .filters [hidden] { display: none; }
 .filters[hidden] { display: none; }
 .filters input[type=search] { width: min(280px, 100%); }
 .filters select { width: auto; }
+.attention { background: var(--panel); border: 1px solid var(--warn); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 12px; }
+.attention h2 { font-size: 13px; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; }
+.attention h2 span { font-size: 11px; font-weight: 600; color: var(--warn); background: var(--warn-soft); padding: 0 7px; border-radius: 99px; }
+.attention ul { list-style: none; margin: 0; padding: 0; }
+.att-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 4px 0; font-size: 13px; }
+.att-row + .att-row { border-top: 1px solid var(--line); }
+.att-name { background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--ink); cursor: pointer; }
+.att-name:hover { text-decoration: underline; }
+.att-what { flex: 1 1 240px; color: var(--muted); }
+.att-acts { display: flex; gap: 6px; }
+.cal-link { align-self: center; }
+.h-follow { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+.h-line .h-how { padding: 0 6px; font-size: 12px; }
+.h-line .h-cal { font-size: 12px; margin-left: 4px; }
 .metrics { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .metric { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 12px; display: inline-flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--muted); }
 .metric b { font-size: 15px; color: var(--ink); font-weight: 600; }

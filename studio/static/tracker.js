@@ -193,6 +193,42 @@ function sorted(apps, col) {
   return [...apps].sort((a, b) => (b.track.updated || "").localeCompare(a.track.updated || "") || b.updated - a.updated);
 }
 
+// What wants doing, soonest first, whatever the search and stage filters are showing.
+// tracking.summarize decides what is on the list.
+function attentionItems() {
+  return T.apps.flatMap((a) => (a.track.attention || []).map((x) => ({ ...x, app: a })))
+    .sort((x, y) => String(x.date).localeCompare(String(y.date)));
+}
+
+// "today", "in 3 days" or "2 days ago" for a calendar day.
+function relDay(iso) {
+  const n = daysBetween(todayIso(), iso);
+  return n === 0 ? "today" : n === 1 ? "tomorrow" : n === -1 ? "yesterday" : n > 0 ? `in ${dayCount(n)}` : `${dayCount(-n)} ago`;
+}
+
+function attentionRow(x) {
+  const a = x.app, name = esc(a.name), label = esc(appLabel(a));
+  const [what, acts] = x.kind === "debrief"
+    ? [`${x.round ? `Round ${esc(x.round)}` : "Interview"} on ${esc(fmtWhen(x.date))} has no debrief`,
+      `<button class="small" data-how-app="${name}" data-how="${esc(x.i)}" aria-label="How it went: ${label}">How it went</button>`]
+    : x.kind === "follow_up"
+    ? [`Follow up, due ${esc(relDay(x.date))}${x.note ? `: ${esc(x.note)}` : ""}`,
+      `<button class="small" data-fu-edit="${name}" aria-label="Change the follow-up for ${label}">Change</button>
+       <button class="small" data-fu-done="${name}" aria-label="Follow-up done: ${label}">Done</button>`]
+    : [`${x.date < todayIso() ? "Deadline passed" : "Deadline"} ${esc(relDay(x.date))} (${esc(fmtShort(x.date))}), not sent yet`,
+      `<button class="small" data-hist="${name}" aria-label="Open ${label}">Open</button>`];
+  return `<li class="att-row"><button class="att-name" data-hist="${name}">${label}</button><span class="att-what">${what}</span><span class="att-acts">${acts}</span></li>`;
+}
+
+function attentionStrip() {
+  const items = attentionItems();
+  if (!items.length) return "";
+  return `<section class="attention" aria-labelledby="att-h">
+    <h2 id="att-h">Needs attention<span>${items.length}</span></h2>
+    <ul>${items.map(attentionRow).join("")}</ul>
+  </section>`;
+}
+
 function strip() {
   const s = T.stats;
   if (!s || !s.sent) return "";
@@ -203,7 +239,8 @@ function strip() {
     ${cell("Heard back", s.reply_rate == null ? "–" : `${Math.round(s.reply_rate * 100)}%`, `${s.replied} of ${s.sent} replied`)}
     ${cell("Median days to reply", s.median_days_to_reply ?? "–")}
     ${cell("Active", s.active)}
-    ${next ? `<button class="metric next" data-hist="${esc(next.app)}"><span>Next up</span><b>${esc(next.studio || next.app)} · ${esc(fmtWhen(next.scheduled))}</b></button>` : ""}
+    ${next ? `<button class="metric next" data-hist="${esc(next.app)}"><span>Next up</span><b>${esc(next.studio || next.app)} · ${esc(fmtWhen(next.scheduled))}</b></button>
+      <a class="metric cal-link" href="/api/calendar" download title="A calendar file of every upcoming call and interview. Nothing is sent from here.">Add upcoming to calendar</a>` : ""}
   </div>`;
 }
 
@@ -222,6 +259,7 @@ function cardMeta(a) {
     bits.push(`<span class="faint">${esc(what)} · ${daysBetween(t.since, todayIso())} d</span>`);
     if (t.column === "interviewing" && t.round) bits.push(`<span class="pill plain">Round ${t.round}</span>`);
     if (t.next) bits.push(`<span class="pill" title="Scheduled">${esc(fmtWhen(t.next))}</span>`);
+    if (t.follow_up) bits.push(`<span class="pill${t.follow_up.date <= todayIso() ? " warn" : " plain"}" title="${esc(t.follow_up.note || "Follow up")}">Follow up ${esc(fmtShort(t.follow_up.date))}</span>`);
     if (t.quiet) bits.push(`<span class="pill warn" title="Nothing logged and nothing scheduled for ${dayCount(t.days_quiet)}">Quiet ${t.days_quiet} d</span><button class="small ghosted" data-ghost="${esc(a.name)}">Ghosted?</button>`);
   }
   const j = a.job || {};
@@ -251,12 +289,12 @@ function renderBoard() {
     return;
   }
   if (!shown.length) {
-    $("#tbody").innerHTML = `${strip()}${noMatches()}`;
+    $("#tbody").innerHTML = `${attentionStrip()}${strip()}${noMatches()}`;
     $("[data-clear]").onclick = clearFilters;
     return wireBoard();
   }
   const open = TRAYS.some(([k]) => k === T.stage) ? T.stage : TRAYS.some(([k]) => k === T.tray) ? T.tray : "";  // a stage filter opens its tray
-  $("#tbody").innerHTML = `${strip()}
+  $("#tbody").innerHTML = `${attentionStrip()}${strip()}
     <div class="board">${COLUMNS.map(([k, l]) => `
       <section class="col" ${k === "saved" ? "" : `data-drop="${k}"`} aria-label="${l}, ${by[k].length}">
         <h2>${l}<span>${by[k].length}</span></h2>
@@ -277,6 +315,14 @@ function wireBoard() {
     const t = e.target;
     if (t.closest("[data-start]")) return startDrafting(findApp(t.closest("[data-start]").dataset.start));
     if (t.closest("a[href]")) return;  // the posting link opens on its own
+    const how = t.closest("[data-how]");
+    if (how) {
+      const a = findApp(how.dataset.howApp);
+      const ev = a?.track.events.find((x) => String(x.i) === how.dataset.how);
+      return ev && openDebrief(a, ev);
+    }
+    if (t.closest("[data-fu-edit]")) return openFollowUp(findApp(t.closest("[data-fu-edit]").dataset.fuEdit));
+    if (t.closest("[data-fu-done]")) return finishFollowUp(findApp(t.closest("[data-fu-done]").dataset.fuDone));
     if (t.closest("[data-ghost]")) return openEvent(findApp(t.closest("[data-ghost]").dataset.ghost), { stage: "ghosted" });
     if (t.closest("[data-tray]")) {
       const k = t.closest("[data-tray]").dataset.tray;
@@ -355,7 +401,8 @@ function dropOn(a, col) {
 
 // ----- move / edit dialog -----
 
-// opts: {stage} for a new event, or {index, event} to edit one already logged.
+// opts: {stage} for a new event, or {index, event} to edit one already logged. An interview's
+// debrief has its own dialog (openDebrief), since it is written after the interview.
 function openEvent(a, opts = {}) {
   if (!a) return;
   const t = a.track;
@@ -379,7 +426,7 @@ function openEvent(a, opts = {}) {
       <div class="dlg-hd"><h2>${esc(title)}</h2><span class="muted">${esc(appLabel(a))} · ${esc(a.role)}</span></div>
       <div class="stack">
         ${choices.length > 1 ? `<label class="field">Stage<select id="ev-stage">${choices.map((c) => `<option value="${c}" ${c === s ? "selected" : ""}>${EV_LABEL[c]}</option>`).join("")}</select></label>` : ""}
-        <div class="field"><span id="ev-when">${s === "ghosted" ? "When did you call it?" : s === "applied" ? "When did you send it?" : s === "note" ? "Date" : "When did this happen?"}</span>
+        <div class="field"><span id="ev-when">${s === "ghosted" ? "When did you call it?" : s === "applied" ? "When did you send it?" : s === "note" ? "Date" : s === "interview" ? "When did you hear about it?" : "When did this happen?"}</span>
           <div class="row" role="group" aria-labelledby="ev-when">
             <button type="button" class="small" data-day="0">Today</button>
             <button type="button" class="small" data-day="-1">Yesterday</button>
@@ -400,7 +447,7 @@ function openEvent(a, opts = {}) {
             <div id="ev-people" class="stack" style="gap:6px">${people.map((p) => personRow(p)).join("")}</div>
             <div><button type="button" class="small" id="ev-addp">Add interviewer</button></div></div>
           <label class="field">Prep notes<textarea id="ev-prep" rows="2" placeholder="What to review before it">${esc(ev.prep || "")}</textarea></label>
-          <label class="field">Debrief<textarea id="ev-debrief" rows="2" placeholder="How it went, what they asked">${esc(ev.debrief || "")}</textarea></label>` : ""}
+          ${editing ? "" : `<div class="hint">Once the scheduled time has passed, the board asks how it went.</div>`}` : ""}
         <label class="field">Note<textarea id="ev-note" rows="2" placeholder="${s === "rejected" ? "Form email, feedback given" : "Anything worth remembering"}">${esc(ev.note || "")}</textarea></label>
         <div id="ev-err" class="ev-err" role="alert"></div>
         <div class="row dlg-ft">
@@ -446,8 +493,8 @@ function openEvent(a, opts = {}) {
       out.scheduled = d ? (tm ? `${d} ${tm}` : d) : "";
     }
     if (ev.stage === "interview") {
-      Object.assign(out, { round: val("ev-round"), format: val("ev-format"), length: val("ev-length"),
-        prep: val("ev-prep"), debrief: val("ev-debrief") });
+      Object.assign(out, { round: val("ev-round"), format: val("ev-format"), length: val("ev-length"), prep: val("ev-prep"),
+        debrief: ev.debrief, no_debrief: ev.no_debrief });  // not on this form, so kept as they are
       out.interviewers = [...dlg.querySelectorAll(".iv-row")].map((r) => ({ name: $(".iv-name", r).value.trim(), role: $(".iv-role", r).value.trim() }))
         .filter((p) => p.name || p.role);
     }
@@ -493,6 +540,143 @@ function openEvent(a, opts = {}) {
   dlg.showModal();
   // Start on the field you most likely fill in.
   dlg.querySelector(ev.stage === "screen" || ev.stage === "interview" ? "#ev-sdate" : "#ev-note").focus();
+}
+
+// How it went: written after the interview, on an event already logged. Saves the whole event
+// back, so everything the scheduling form holds stays as it is.
+function openDebrief(a, e) {
+  const dlg = $("#ev-dlg");
+  const { i: index, ...fields } = e;
+  const round = e.round ? `Round ${e.round}` : "Interview";
+  const people = (e.interviewers || []).map((p) => p.name || p.role).filter(Boolean).join(", ");
+  const summary = [round, e.scheduled && fmtWhen(e.scheduled), people && `with ${people}`].filter(Boolean).join(" · ");
+  dlg.setAttribute("aria-label", `How it went: ${appLabel(a)}`);
+  dlg.innerHTML = `<form class="ev-form" novalidate>
+    <div class="dlg-hd"><h2>How it went</h2><span class="muted">${esc(appLabel(a))} · ${esc(a.role)}</span></div>
+    <div class="stack">
+      <div class="muted">${esc(summary)} <button type="button" class="small" id="ev-details">Edit details</button></div>
+      <label class="field">Debrief<textarea id="ev-debrief" rows="5" placeholder="How it went, what they asked">${esc(e.debrief || "")}</textarea></label>
+      <label class="field">Note<textarea id="ev-note" rows="2" placeholder="Anything worth remembering">${esc(e.note || "")}</textarea></label>
+      <div id="ev-err" class="ev-err" role="alert"></div>
+      <div class="row dlg-ft">
+        <button type="button" class="ghost" id="ev-nodebrief" title="Stop asking about this interview, for one that was cancelled or left nothing to write down">No debrief</button>
+        <span class="grow"></span>
+        <button type="button" id="ev-cancel">Cancel</button>
+        <button class="primary" type="submit">Save</button>
+      </div>
+    </div></form>`;
+  const typed = () => ({ debrief: $("#ev-debrief", dlg).value.trim(), note: $("#ev-note", dlg).value.trim() });
+  const save = async (extra, done) => {
+    const err = $("#ev-err", dlg);
+    err.textContent = "";
+    try {
+      await api("PUT", `/api/apps/${enc(a.name)}/events/${index}`, { event: { ...fields, ...typed(), ...extra } });
+      dlg.close();
+      await refreshHome();
+      toast(done);
+    } catch (x) {
+      err.textContent = x.message;
+    }
+  };
+  const nothing = $("#ev-nodebrief", dlg);
+  const markEmpty = () => { nothing.disabled = Boolean($("#ev-debrief", dlg).value.trim()); };
+  $("#ev-debrief", dlg).oninput = markEmpty;
+  markEmpty();
+  nothing.onclick = () => save({ debrief: "", no_debrief: true }, "Saved. The board will not ask about this one again.");
+  $("#ev-cancel", dlg).onclick = () => dlg.close();
+  $(".ev-form", dlg).onsubmit = (x) => { x.preventDefault(); save({}, "Saved"); };
+  $("#ev-details", dlg).onclick = () => {  // what was typed so far goes along, to save with the details
+    const event = { ...fields, ...typed() };
+    dlg.close();
+    openEvent(a, { index, event });
+  };
+  if (!dlg.open) dlg.showModal();
+  $("#ev-debrief", dlg).focus();
+}
+
+// ----- follow-up (a reminder in tracking.yaml, not an event) -----
+
+async function saveFollowUp(a, value) {
+  await api("PUT", `/api/apps/${enc(a.name)}/follow-up`, { follow_up: value });
+  await refreshHome();
+}
+
+function openFollowUp(a) {
+  if (!a) return;
+  const dlg = $("#ev-dlg"), cur = a.track.follow_up;
+  dlg.setAttribute("aria-label", `Follow up: ${appLabel(a)}`);
+  dlg.innerHTML = `<form class="ev-form" novalidate>
+    <div class="dlg-hd"><h2>Follow up</h2><span class="muted">${esc(appLabel(a))} · ${esc(a.role)}</span></div>
+    <div class="stack">
+      <div class="field"><span id="fu-when">When?</span>
+        <div class="row wrap" role="group" aria-labelledby="fu-when">
+          <button type="button" class="small" data-days="3">In 3 days</button>
+          <button type="button" class="small" data-days="7">In a week</button>
+          <button type="button" class="small" data-days="14">In 2 weeks</button>
+          <input type="date" id="fu-date" value="${esc(cur?.date || "")}" aria-label="Date" required>
+        </div></div>
+      <label class="field">What to do (optional)<input id="fu-note" value="${esc(cur?.note || "")}" placeholder="Email the recruiter"></label>
+      <div class="muted" style="font-size:12px">The board reminds you on that day. Nothing is sent from here.</div>
+      <div id="ev-err" class="ev-err" role="alert"></div>
+      <div class="row dlg-ft">
+        ${cur ? `<button type="button" class="ghost quiet-danger" id="fu-clear">Clear</button>` : ""}<span class="grow"></span>
+        <button type="button" id="ev-cancel">Cancel</button>
+        <button class="primary" type="submit">Save</button>
+      </div>
+    </div></form>`;
+  const run = async (value, done) => {
+    try {
+      await saveFollowUp(a, value);
+      dlg.close();
+      toast(done);
+    } catch (x) {
+      $("#ev-err", dlg).textContent = x.message;
+    }
+  };
+  dlg.querySelectorAll("[data-days]").forEach((b) => (b.onclick = () => { $("#fu-date", dlg).value = shiftDay(todayIso(), Number(b.dataset.days)); }));
+  $("#ev-cancel", dlg).onclick = () => dlg.close();
+  if (cur) $("#fu-clear", dlg).onclick = () => run(null, "Follow-up cleared");
+  $(".ev-form", dlg).onsubmit = (x) => {
+    x.preventDefault();
+    const date = $("#fu-date", dlg).value;
+    if (!date) { $("#ev-err", dlg).textContent = "Pick a day."; return $("#fu-date", dlg).focus(); }
+    run({ date, note: $("#fu-note", dlg).value.trim() }, `Follow up on ${esc(fmtShort(date))}`);
+  };
+  dlg.showModal();
+  $("#fu-date", dlg).focus();
+}
+
+// Done takes the reminder away. It logs nothing: only you know whether you heard anything.
+async function finishFollowUp(a) {
+  if (!a?.track.follow_up) return;
+  const was = a.track.follow_up;
+  try {
+    await saveFollowUp(a, null);
+    toast(`Follow-up done for ${esc(appLabel(a))}. <a href="#" id="undo">Undo</a>`, false, 8000);
+    $("#undo").onclick = async (e) => {
+      e.preventDefault();
+      $("#toast").className = "";
+      try {
+        await saveFollowUp(a, was);
+        toast("Undone");
+      } catch (x) {
+        toast(esc(x.message), true);
+      }
+    };
+  } catch (x) {
+    toast(esc(x.message), true);
+  }
+}
+
+// True once a scheduled event's start has gone by, or if it has no scheduled time at all.
+function eventStarted(e) {
+  if (!e.scheduled) return true;
+  const [d, tm] = String(e.scheduled).split(" ");
+  if (!tm) return d <= todayIso();
+  const [h, m] = tm.split(":").map(Number);
+  const at = toDate(d);
+  at.setHours(h, m);
+  return at <= new Date();
 }
 
 const personRow = (p) => `<div class="iv-row">
@@ -805,6 +989,7 @@ function eventDetail(e) {
   if (e.interviewers?.length) rows.push(["With", e.interviewers.map((p) => esc(p.name || "") + (p.role ? ` <span class="faint">(${esc(p.role)})</span>` : "")).join(", ")]);
   if (e.prep) rows.push(["Prep", esc(e.prep)]);
   if (e.debrief) rows.push(["Debrief", esc(e.debrief)]);
+  else if (e.no_debrief) rows.push(["Debrief", `<span class="faint">None</span>`]);
   return (rows.length ? `<dl class="h-dl">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>` : "")
     + (e.note ? `<p class="h-text">${esc(e.note)}</p>` : "");
 }
@@ -837,7 +1022,9 @@ function renderHistory() {
   if (t.applied) rows.push(row(t.applied, "st-applied", "Applied", `<p class="h-text faint">The day it was marked submitted.</p>`));
   for (const e of t.events) {
     rows.push(row(e.date, `st-${EV_COLUMN[e.stage] || "note"}`, `${EV_LABEL[e.stage]}${e.round ? ` · round ${e.round}` : ""}`, eventDetail(e),
-      `<button class="ghost small h-edit" data-edit="${e.i}" aria-label="Edit ${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))}">Edit</button>`));
+      `${e.stage === "interview" && eventStarted(e) ? `<button class="small h-how" data-how="${e.i}" aria-label="How it went: ${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))}">${e.debrief ? "Edit debrief" : "How it went"}</button>` : ""}
+       <button class="ghost small h-edit" data-edit="${e.i}" aria-label="Edit ${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))}">Edit</button>
+       ${e.scheduled ? `<a class="h-cal" href="/api/apps/${enc(a.name)}/events/${e.i}/calendar" download aria-label="Add ${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))} to a calendar">Calendar</a>` : ""}`));
   }
   const status = saved ? "Saved lead, not started" : drafting ? "Still drafting"
     : CLOSED.includes(t.column) ? `${COL_LABEL[t.column]} ${t.closed_from === "applied" ? "with no reply" : `after ${COL_LABEL[t.closed_from].toLowerCase()}`}${t.days_to_close != null ? `, ${dayCount(t.days_to_close)} after applying` : ""}`
@@ -858,8 +1045,10 @@ function renderHistory() {
         ${saved ? `<button class="primary" data-start="${esc(a.name)}">Start drafting</button>`
           : drafting ? `<button class="primary" data-act="stage" data-arg="applied">Move to Applied</button>` : menu("Move to", moveItems(t), { cls: "primary" })}
         ${drafting ? "" : `<button data-act="note">Add note</button>`}
+        ${t.applied && !CLOSED.includes(t.column) && !t.follow_up ? `<button data-act="follow">Set follow-up</button>` : ""}
         ${menu("Open", open)}
       </div>
+      ${t.follow_up ? `<div class="hint h-follow"><span>Follow up ${esc(fmtShort(t.follow_up.date))}${t.follow_up.note ? `: ${esc(t.follow_up.note)}` : ""}</span> <button class="small" data-act="follow">Change</button></div>` : ""}
       ${jobDetail(a)}
       ${rows.length ? `<ol class="hist">${rows.join("")}</ol>` : `<div class="muted">Nothing logged yet. Move it to Applied when you send it.</div>`}
     </div>`;
@@ -871,6 +1060,8 @@ function renderHistory() {
     if (b.dataset.start) return startDrafting(a);
     if (b.dataset.act === "stage") return openEvent(a, { stage: b.dataset.arg });
     if (b.dataset.act === "note") return openEvent(a, { stage: "note" });
+    if (b.dataset.act === "follow") return openFollowUp(a);
+    if (b.dataset.how) return openDebrief(a, t.events.find((x) => String(x.i) === b.dataset.how));
     if (b.dataset.act === "delete") return deleteApp(a);  // closes this once the board reloads without it
     if (b.dataset.edit) {
       const ev = t.events.find((x) => String(x.i) === b.dataset.edit);
@@ -1044,7 +1235,7 @@ function renderStats() {
           <div class="bar"><i class="st-interviewing" style="width:${(n / s.interviews) * 100}%"></i></div><b>${n}</b><span></span></div>`).join("")
           : `<div class="muted">No interviews logged yet.</div>`}
       </div></section>
-      <section class="card"><div class="hd"><h2>Coming up</h2></div><div class="bd">
+      <section class="card"><div class="hd"><h2>Coming up</h2>${s.upcoming.length ? `<a href="/api/calendar" download>Add to calendar</a>` : ""}</div><div class="bd">
         ${s.upcoming.length ? `<ul class="upcoming">${s.upcoming.map((u) => `<li><button class="ghost" data-hist="${esc(u.app)}">
           <strong>${esc(u.studio || u.app)}</strong><span>${EV_LABEL[u.stage]}${u.round ? ` round ${u.round}` : ""}</span><span class="grow"></span><span>${esc(fmtWhen(u.scheduled))}</span></button></li>`).join("")}</ul>`
           : `<div class="muted">Nothing scheduled.</div>`}

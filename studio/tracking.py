@@ -14,7 +14,12 @@ so it is never stored twice. Everything after that is an event:
         interviewers: [{name: Sam Lee, role: Lead Designer}]
         prep: what to read up on before
         debrief: how it went
+        no_debrief: true            # interview only: nothing to write, so stop asking
         note: anything else
+
+The file can also hold one reminder, next to the events (see clean_follow_up):
+
+    follow_up: {date: 2026-11-12, note: Email the recruiter}
 
 Ghosted is a kind of rejection with no real end date, so it counts as a rejection but is
 left out of every "days to" figure.
@@ -32,6 +37,7 @@ COLUMN = {"applied": "applied", "screen": "screen", "interview": "interviewing",
 FORMATS = ("phone", "video", "onsite", "take-home")
 RESPONSES = ("screen", "interview", "offer", "rejected")  # the studio answered (withdrawing is you)
 QUIET_DAYS = 30
+DEADLINE_DAYS = 7  # a deadline shows as needing attention this many days either side of it
 FILE = "tracking.yaml"
 DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 WHEN = re.compile(r"^([0-9]{4}-[0-9]{2}-[0-9]{2})(?:[ T]([0-9]{1,2}):([0-9]{2}))?$")
@@ -67,6 +73,8 @@ def clean_event(e, round_default=None):
             sched = f"{m.group(1)} {h:02d}:{mi:02d}"
         out["scheduled"] = sched
     if stage == "interview":
+        if e.get("no_debrief") is True and not str(e.get("debrief") or "").strip():
+            out["no_debrief"] = True
         rnd = e.get("round") or round_default
         if rnd not in (None, ""):
             try:
@@ -99,6 +107,37 @@ def clean_event(e, round_default=None):
     return out
 
 
+def clean_follow_up(value):
+    """Check a reminder from the app. Returns {date, note} with no empty note, or None when
+    the date is blank, which clears it. Raises BuildError."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise BuildError("a follow-up must be a mapping")
+    due = str(value.get("date") or "").strip()
+    note = str(value.get("note") or "").strip()
+    if not due:
+        if note:
+            raise BuildError("a follow-up needs a date")
+        return None
+    if not DATE.match(due):
+        raise BuildError(f"the follow-up date should look like 2026-11-12, not {due!r}")
+    try:
+        day(due)
+    except ValueError:
+        raise BuildError(f"{due!r} is not a day on the calendar")
+    return {"date": due, **({"note": note} if note else {})}
+
+
+def read_follow_up(value):
+    """The reminder as the file holds it. A plain date is fine by hand, and anything the app
+    cannot read counts as no reminder rather than breaking the board."""
+    try:
+        return clean_follow_up(value if isinstance(value, dict) or not value else {"date": value})
+    except BuildError:
+        return None
+
+
 def ordered(events):
     """Events by date; same-day events keep the order they were logged in. Each keeps its
     index in the file as `i`, which the app uses to edit or delete it."""
@@ -110,21 +149,48 @@ def next_round(events):
     return sum(1 for e in events or [] if isinstance(e, dict) and e.get("stage") == "interview") + 1
 
 
-def summarize(events, submitted, today=None, saved=False):
+def interview_over(e, now):
+    """True once a scheduled interview's start plus its length has gone by. A bare date lasts
+    the whole day. An interview with nothing scheduled may not have a date yet, so it is False."""
+    if not e.get("scheduled"):
+        return False
+    end = when(e["scheduled"])
+    if WHEN.match(str(e["scheduled"])).group(2):
+        try:
+            end += timedelta(minutes=int(e.get("length") or 0))
+        except (TypeError, ValueError):
+            pass
+    return end <= now
+
+
+def deadline_item(deadline, today):
+    try:
+        due = day(deadline)
+    except (TypeError, ValueError):
+        return []
+    return [{"kind": "deadline", "date": due.isoformat()}] if abs((due - today).days) <= DEADLINE_DAYS else []
+
+
+def summarize(events, submitted, today=None, saved=False, follow_up=None, deadline=None):
     """What the board needs to know about one application.
 
     `submitted` is the submitted.yaml mapping or None. Without it the application is still
     being drafted, whatever its events say. `saved` (job.yaml) makes an unsent one a lead in the
-    Saved column instead; it is ignored once the application is submitted."""
+    Saved column instead; it is ignored once the application is submitted. `attention` lists
+    what wants doing: a past interview with no debrief, a follow-up that is due, or the deadline
+    (job.yaml) of something unsent. A closed application asks for nothing."""
+    clock = datetime.now() if today is None else datetime.combine(today, datetime.min.time())
     today = today or date.today()
     evs = ordered(events)
     applied = str(submitted.get("date")) if submitted else None
     out = {"column": "drafting", "applied": applied, "since": None, "updated": applied, "round": 0,
            "next": None, "closed_from": None, "days_to_close": None, "first_reply": None, "quiet": False,
-           "days_quiet": None, "events": evs}
+           "days_quiet": None, "events": evs, "follow_up": None, "attention": []}
     if not submitted:
         if saved:
             out["column"] = "saved"
+        if deadline:
+            out["attention"] = deadline_item(deadline, today)
         return out
     column, since, prev = "applied", applied, "applied"
     for e in evs:
@@ -146,6 +212,12 @@ def summarize(events, submitted, today=None, saved=False):
         if column != "ghosted":
             out["days_to_close"] = (day(since) - day(applied)).days
         return out
+    out["follow_up"] = read_follow_up(follow_up)
+    out["attention"] = [{"kind": "debrief", "date": e["scheduled"], "i": e["i"], "round": e.get("round")}
+                        for e in evs if e["stage"] == "interview" and not e.get("debrief")
+                        and not e.get("no_debrief") and interview_over(e, clock)]
+    if out["follow_up"] and day(out["follow_up"]["date"]) <= today:
+        out["attention"].append({"kind": "follow_up", **out["follow_up"]})
     now = datetime.combine(today, datetime.min.time())
     upcoming = sorted(e["scheduled"] for e in evs if e.get("scheduled") and when(e["scheduled"]) >= now)
     out["next"] = upcoming[0] if upcoming else None

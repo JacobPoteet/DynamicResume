@@ -864,6 +864,9 @@ def print_track(example, args):
                 print(f"              {k}: {e[k]}")
     if track["next"]:
         print(f"Next: {track['next']}")
+    if track["follow_up"]:
+        note = track["follow_up"].get("note")
+        print(f"Follow up: {track['follow_up']['date']}" + (f" ({note})" if note else ""))
     if track["quiet"]:
         print(f"Quiet for {track['days_quiet']} days. Ghosted? python build.py track {app.name} ghosted")
 

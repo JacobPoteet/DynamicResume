@@ -28,6 +28,12 @@ TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css",
 LOCK = threading.Lock()  # one typst build or file write at a time
 
 
+class Download:
+    """What a route returns to send a file to save instead of JSON."""
+    def __init__(self, text, ctype, filename):
+        self.data, self.ctype, self.filename = text.encode("utf-8"), ctype, filename
+
+
 class Studio:
     def __init__(self, example):
         self.example = example
@@ -266,6 +272,25 @@ def put_job(s, body, q, name):
         return {"job": job, "track": s.ws.track(s.ws.app_dir(name)), "versions": s.versions(name)}
 
 
+# A reminder is tracking too, so it stays open after sending.
+@route("PUT", "/api/apps/([^/]+)/follow-up")
+def put_follow_up(s, body, q, name):
+    with LOCK:
+        return s.ws.set_follow_up(name, body.get("follow_up"))
+
+
+# Calendar files are only ever downloaded. Nothing here reaches anyone but the person saving them.
+@route("GET", "/api/apps/([^/]+)/events/([0-9]+)/calendar")
+def event_calendar(s, body, q, name, index):
+    text, filename = s.ws.event_calendar(name, int(index))
+    return Download(text, "text/calendar; charset=utf-8", filename)
+
+
+@route("GET", "/api/calendar")
+def upcoming_calendar(s, body, q):
+    return Download(s.ws.upcoming_calendar(), "text/calendar; charset=utf-8", "upcoming-interviews.ics")
+
+
 @route("GET", "/api/stats")
 def stats(s, body, q):
     return s.ws.stats()
@@ -390,9 +415,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         self.handle_request("DELETE")
 
-    def send(self, code, data, ctype):
+    def send(self, code, data, ctype, filename=None):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
+        if filename:
+            ascii_name = re.sub(r"[^A-Za-z0-9._-]", "_", filename)
+            self.send_header("Content-Disposition", f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
@@ -430,7 +458,10 @@ class Handler(BaseHTTPRequestHandler):
             for m, rx, fn in ROUTES:
                 match = rx.match(path)
                 if m == method and match:
-                    return self.send_json(fn(self.studio, body, parse_qs(url.query), *match.groups()))
+                    out = fn(self.studio, body, parse_qs(url.query), *match.groups())
+                    if isinstance(out, Download):
+                        return self.send(200, out.data, out.ctype, out.filename)
+                    return self.send_json(out)
             self.send_json({"error": f"no route {method} {path}"}, 404)
         except BuildError as e:
             self.send_json({"error": str(e)}, 400)
