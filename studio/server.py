@@ -137,6 +137,8 @@ def create_app(s, body, q):
 
 @route("GET", "/api/apps/([^/]+)")
 def get_app(s, body, q, name):
+    with LOCK:
+        s.ws.mark_seen(name)  # before reading, so an edit landing in between still counts as outside
     return s.ws.load_app(name)
 
 
@@ -154,7 +156,11 @@ def delete_app(s, body, q, name):
 def put_tailor(s, body, q, name):
     s.ws.require_editable(name)
     with LOCK, build.collect_warnings() as warnings:
+        clash = s.ws.outside_edits(name, ["tailor.yaml"], body.get("keep"))
+        if clash:
+            return {"conflict": clash}
         s.ws.save_tailor(name, body["tailor"])
+        s.ws.mark_seen(name, ["tailor.yaml"])
     # A studio rename moves the PDFs and can change which notes apply, so the page gets both back.
     try:
         after = {"pdfs": s.ws.pdf_status(s.ws.app_dir(name), body["tailor"]),
@@ -174,7 +180,11 @@ def get_preview(s, body, q, name, kind):
 def put_letter(s, body, q, name):
     s.ws.require_editable(name)
     with LOCK:
+        clash = s.ws.outside_edits(name, ["cover-letter.md"], body.get("keep"))
+        if clash:
+            return {"conflict": clash}
         s.ws.save_text(name, "cover-letter.md", body["text"])
+        s.ws.mark_seen(name, ["cover-letter.md"])
     return {"preview": s.preview(name, "letter", letter=body["text"]), "versions": s.versions(name)}
 
 
@@ -223,6 +233,9 @@ def stats(s, body, q):
 def put_studio_notes(s, body, q, name):
     tailor = s.ws._read_yaml(s.ws.app_dir(name) / "tailor.yaml") or {}
     with LOCK:
+        clash = s.ws.outside_edits(name, ["studios.yaml"], body.get("keep"))
+        if clash:
+            return {"conflict": clash}
         s.ws.save_studio_notes((tailor.get("target") or {}).get("studio"), body.get("notes"))
     return {"versions": s.versions(name)}
 
@@ -230,11 +243,16 @@ def put_studio_notes(s, body, q, name):
 @route("PUT", "/api/apps/([^/]+)/listing")
 def put_listing(s, body, q, name):
     s.ws.require_editable(name)
+    files = [f for key, f in (("text", "listing.md"), ("spec", "listing.yaml")) if key in body]
     with LOCK:
+        clash = s.ws.outside_edits(name, files, body.get("keep"))
+        if clash:
+            return {"conflict": clash}
         if "text" in body:
             s.ws.save_text(name, "listing.md", body["text"])
         if "spec" in body:
             s.ws.save_listing_spec(name, body["spec"])
+        s.ws.mark_seen(name, files)
     return {"versions": s.versions(name)}
 
 

@@ -182,6 +182,7 @@ class Workspace:
         self.studios_path = self.master_path.parent / "studios.yaml"
         self.snap_dir = self.home / "snapshots" / ("example" if example else "")
         self.history_dir = self.snap_dir / "master-history"
+        self.seen = {}  # path -> what the file held when the page last loaded or saved it
 
     # ----- master -----
 
@@ -579,6 +580,32 @@ class Workspace:
         elif notes:
             entries.append({"studio": studio, "notes": notes})
         self.studios_path.write_text(rt_dump(merge(doc, entries)), encoding="utf-8", newline="\n")
+        self.seen[self.studios_path] = self.studios_path.read_bytes()
+
+    # ----- outside edits -----
+
+    def _watched(self, app, filename):
+        return self.studios_path if filename == "studios.yaml" else app / filename
+
+    def mark_seen(self, name, files=(*FROZEN, "studios.yaml")):
+        """Remember what these files hold now: the page just loaded them or wrote them."""
+        app = self.app_dir(name)
+        for f in files:
+            p = self._watched(app, f)
+            self.seen[p] = p.read_bytes() if p.exists() else None
+
+    def outside_edits(self, name, files, keep=None):
+        """Which of these files changed on disk since the page last loaded or saved them (a text
+        editor, Claude Code, a draft). Saving over one would lose that change, so the server asks
+        first. `keep` names files the person chose to replace anyway. A file not seen since the
+        server started passes, since there is nothing to compare it with."""
+        app = self.app_dir(name)
+        out = []
+        for f in files:
+            p = self._watched(app, f)
+            if f not in (keep or ()) and p in self.seen and self.seen[p] != (p.read_bytes() if p.exists() else None):
+                out.append(f)
+        return out
 
     # ----- snapshots -----
 
