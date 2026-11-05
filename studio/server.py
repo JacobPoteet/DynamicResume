@@ -5,6 +5,7 @@ same files the CLI uses (master.yaml, tailor.yaml, ...), so the app, a text edit
 Claude Code can all work on one application.
 """
 import json
+import os
 import re
 import shutil
 import threading
@@ -393,10 +394,24 @@ class Handler(BaseHTTPRequestHandler):
         return p
 
 
+class StudioServer(ThreadingHTTPServer):
+    # On Windows, SO_REUSEADDR lets a second server bind a port already in use, and the two
+    # then share it. Elsewhere it only allows a quick restart, and a busy port still fails.
+    allow_reuse_address = os.name != "nt"
+
+
+def open_server(port):
+    try:
+        return StudioServer(("127.0.0.1", port), Handler)
+    except OSError as e:
+        raise BuildError(f"cannot use port {port}: it is already in use or blocked ({e.strerror}). "
+                         "If the editor is already running, use that one, or pick another port with --port.")
+
+
 def serve(example, port, open_browser=True):
+    srv = open_server(port)
     Handler.studio = Studio(example)
-    srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    url = f"http://127.0.0.1:{port}/"
+    url =f"http://127.0.0.1:{port}/"
     print(f"DynamicResume editor{' (example data)' if example else ''}: {url}   Ctrl+C to stop")
     if not example and HOME != ROOT:
         print(f"Data and applications: {HOME}")
