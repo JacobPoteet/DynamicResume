@@ -1,5 +1,6 @@
 """How master + tailor merge: overrides, short text, variants, unknown ids, warnings."""
 import copy
+import threading
 
 import pytest
 
@@ -182,6 +183,26 @@ def test_the_demo_letter_has_no_markdown_warning(master, tailor):
     with build.collect_warnings() as w:
         build.letter_data(master, tailor, (REPO / "examples/applications" / EXAMPLE_APP / "cover-letter.md").read_text(encoding="utf-8"))
     assert not any("Markdown" in x for x in w), w
+
+
+def test_collecting_warnings_on_one_thread_does_not_touch_another():
+    # The app's board reads PDF status while a preview on another thread collects its warnings.
+    other = threading.Event()
+    done = threading.Event()
+
+    def elsewhere():
+        with build.collect_warnings():
+            other.set()
+            done.wait(5)
+
+    t = threading.Thread(target=elsewhere)
+    with build.collect_warnings() as w:
+        t.start()
+        other.wait(5)
+        build.warn("mine")
+        done.set()
+        t.join()
+    assert w == ["mine"]
 
 
 def test_lint_flags_em_dashes_and_banned_phrases():

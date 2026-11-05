@@ -19,6 +19,7 @@ the main checkout. Set DYNAMICRESUME_HOME to use another folder.
 """
 import argparse
 import calendar
+import hashlib
 import json
 import math
 import os
@@ -26,6 +27,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
@@ -76,12 +78,13 @@ class BuildError(Exception):
 
 # ---------- helpers ----------
 
-_sink = None
+_local = threading.local()  # per thread: the app's board reads while a preview is rendering
 
 
 def warn(msg):
-    if _sink is not None:
-        _sink.append(msg)
+    sink = getattr(_local, "sink", None)
+    if sink is not None:
+        sink.append(msg)
     else:
         print(f"WARN: {msg}")
 
@@ -89,12 +92,12 @@ def warn(msg):
 @contextmanager
 def collect_warnings():
     """Collect warn() messages into a list instead of printing them."""
-    global _sink
-    prev, _sink = _sink, []
+    prev = getattr(_local, "sink", None)
+    _local.sink = []
     try:
-        yield _sink
+        yield _local.sink
     finally:
-        _sink = prev
+        _local.sink = prev
 
 
 def find_typst():
@@ -432,6 +435,39 @@ def letter_data(master, tailor, text):
     return data
 
 
+def content_hash(data):
+    """A hash of what a PDF prints from this data, so an edit that does not reach the page
+    (a bullet's tags or priority, the master's default headline) does not change it."""
+    def printed(o):
+        if isinstance(o, dict):
+            return {k: printed(v) for k, v in o.items() if k not in ("tags", "priority")}
+        return [printed(v) for v in o] if isinstance(o, list) else o
+    basics = {k: v for k, v in data["basics"].items() if k != "headline"}  # data["headline"] is the one printed
+    text = json.dumps(printed({**data, "basics": basics}), sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def pdf_hashes(master, tailor, letter_text):
+    """What each PDF would contain right now, as a hash. None when it would not build, or
+    for the letter when there is no text."""
+    def resume():
+        tpl = pick_template(tailor)
+        data = {**resolve(master, tailor, False), "template": tpl}
+        if tpl == "resume-inline":  # names games on its role lines, with no Games section
+            del data["games"]
+        return data
+
+    def attempt(make):
+        try:
+            return content_hash(make())
+        except (BuildError, AttributeError, KeyError, TypeError, ValueError):
+            return None  # a tailor or master the build refuses: the PDF cannot match it
+
+    with collect_warnings():
+        return {"resume": attempt(resume),
+                "letter": attempt(lambda: letter_data(master, tailor, letter_text)) if letter_text.strip() else None}
+
+
 # ---------- typst ----------
 
 def templates():
@@ -587,6 +623,23 @@ def last_fit(app, example):
         return None
 
 
+def record_build(app, example, master, tailor, letter_text, resume_fill, letter_fill):
+    """Note what a real build made: its page fill for the impact check, and hashes of its
+    content so the app can tell when the PDFs no longer match."""
+    p = fit_path(app, example)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"built": time.strftime("%Y-%m-%d %H:%M"), "resume": resume_fill, "letter": letter_fill,
+                             "hashes": pdf_hashes(master, tailor, letter_text)}, indent=2), encoding="utf-8")
+
+
+def built_hashes(app, example):
+    """The hashes recorded by the last real build, or None if PDFs were built before hashes were recorded."""
+    try:
+        return json.loads(fit_path(app, example).read_text(encoding="utf-8")).get("hashes")
+    except (OSError, ValueError):
+        return None
+
+
 def build_app(typst, app, example, template=None, out_dir=None):
     """Build one application's PDFs into its folder. A --template trial build goes to
     build/<app>/, and `out_dir` (the impact check) takes both PDFs instead, so the
@@ -615,10 +668,11 @@ def build_app(typst, app, example, template=None, out_dir=None):
         return result
 
     letter = app / "cover-letter.md"
-    if not letter.exists() or not letter.read_text(encoding="utf-8").strip():
+    letter_text = letter.read_text(encoding="utf-8") if letter.exists() else ""
+    if not letter_text.strip():
         warn("no cover-letter.md, skipping cover letter")
     else:
-        ldata = letter_data(master, tailor, letter.read_text(encoding="utf-8"))
+        ldata = letter_data(master, tailor, letter_text)
         out = dest / letter_name
         lf = fill(render(typst, "cover-letter.typ", ldata, out, work, "cover-letter"))
         if lf["pages"] and lf["pages"] > 1:
@@ -627,10 +681,7 @@ def build_app(typst, app, example, template=None, out_dir=None):
             warn(w)
         result.update(letter=out, letter_fill=lf)
     if not out_dir:
-        p = fit_path(app, example)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps({"built": time.strftime("%Y-%m-%d %H:%M"), "resume": rf,
-                                 "letter": result["letter_fill"]}, indent=2), encoding="utf-8")
+        record_build(app, example, master, tailor, letter_text, rf, result["letter_fill"])
     return result
 
 
@@ -695,7 +746,6 @@ def print_check(rows):
 
 def run_draft(example, name):
     """Run the app's headless Claude draft from the command line, printing its progress."""
-    import threading
     from studio.draft import Drafts
     from studio.workspace import Workspace
     drafts = Drafts(Workspace(example), threading.Lock(), ROOT / "build" / ("studio-example" if example else "studio"))
@@ -817,7 +867,7 @@ def main():
                 r = ws.submit_app(name, args.date)
                 print(f"OK: {name} submitted on {r['date']}. Frozen copies are in {r['path']}")
                 if r["stale"]:
-                    print("WARN: the PDFs were older than your latest edits; they were frozen as they are.")
+                    print("WARN: the PDFs did not match your latest edits; they were frozen as they are.")
             else:
                 r = ws.unsubmit_app(name)
                 print(f"OK: {name} can be edited again." + (f" The sent PDFs are kept in {r['kept']}" if r["kept"] else ""))

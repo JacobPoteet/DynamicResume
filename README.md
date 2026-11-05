@@ -33,7 +33,7 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 **Short versions and variants.** A master bullet can carry a `short:` wording that any application switches on with one click, instead of pasting the same shorter override into several applications. A bullet marked `variant_of` another is an alternative version of it (say, one that mentions machine learning for the listings that ask). The editor unticks one when you tick the other, and the build refuses both.
 
-**Impact check.** After every master save, the app rebuilds each application into `build/check/` and lists the ones whose page count or fill changed, so lengthening a bullet or renaming a game never pushes one to two pages unnoticed. `python build.py check` does the same from the command line.
+**Impact check.** After every master save, the app rebuilds each application into `build/check/` and lists the ones whose page count or fill changed, so lengthening a bullet or renaming a game never pushes one to two pages unnoticed. `python build.py check` does the same from the command line. An application's PDFs show as out of date only when what they would contain has changed, so editing a bullet it does not use leaves it current.
 
 **Recurring gaps.** Each draft lists what the listing asks for that your master cannot back up, with a short topic. Master, Gaps ranks those topics across every application, so you know which bullets are worth writing next.
 

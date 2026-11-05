@@ -276,7 +276,7 @@ function showSent(kind) {
     the PDFs stay exactly as sent. Unsubmit it to edit or rebuild.</div>`);
   const file = sub[kind] || sub.resume;
   $("#right").innerHTML = `<div class="pv-head"><div class="fillline">
-      <span class="pill good">As sent</span><span class="muted">${esc(file)}</span>${sub.stale ? `<span class="pill warn" title="The PDFs were older than the latest edits when they were frozen">Built before the last edits</span>` : ""}
+      <span class="pill good">As sent</span><span class="muted">${esc(file)}</span>${sub.stale ? `<span class="pill warn" title="The PDFs did not match the latest edits when they were frozen">Built before the last edits</span>` : ""}
       <span class="grow"></span><a href="${sentUrl(file)}" target="_blank">Open in a new tab</a></div></div>
     <iframe class="sent-pdf" src="${sentUrl(file)}" title="${kind === "letter" ? "Cover letter" : "Resume"} as sent"></iframe>`;
   $("#unsubmit").onclick = unsubmit;
@@ -287,7 +287,7 @@ async function markSubmitted() {
   const p = S.app.pdfs;
   if (!p.resume.exists) return toast("Build the PDFs you are sending first, then mark the application submitted.", true);
   if ((p.resume.stale || (p.letter.exists && p.letter.stale)) &&
-      !confirm("The PDFs are older than your latest edits. They are frozen as they are now, which is usually what you sent. Continue?")) return;
+      !confirm("The PDFs do not match your latest edits. They are frozen as they are now, which is usually what you sent. Continue?")) return;
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const date = prompt("The day you sent it (YYYY-MM-DD). The PDFs, tailor, letter, listing and master are copied to submitted/.", today);
@@ -319,7 +319,7 @@ function renderPdfState() {
   if (!el) return;
   const p = S.app.pdfs;
   const link = (x, label) => x.exists
-    ? `<a class="pill ${x.stale ? "warn" : "good"}" href="${pdfUrl(x.file)}" target="_blank" title="${x.stale ? "Older than your latest changes" : "Up to date"}">${label}${x.stale ? " (old)" : ""}</a>`
+    ? `<a class="pill ${x.stale ? "warn" : "good"}" href="${pdfUrl(x.file)}" target="_blank" title="${x.stale ? "Does not match your latest changes. Build PDFs to update it." : "Up to date"}">${label}${x.stale ? " (old)" : ""}</a>`
     : "";
   el.innerHTML = `<span class="row">${link(p.resume, "Resume PDF")}${link(p.letter, "Letter PDF")}</span>`;
 }
@@ -376,7 +376,7 @@ async function saveNow() {
     S.versions = { ...S.versions, ...r.versions };
     if (seq !== saveSeq || !S.app || S.app.name !== name) return;
     S.previews.resume = r.preview;
-    for (const k of ["resume", "letter"]) if (S.app.pdfs[k].exists) S.app.pdfs[k].stale = true;
+    S.app.pdfs = r.pdfs;
     renderPdfState();
     if (TABS[S.tab]?.preview === "resume") renderPreview("resume");
     else refreshPreview(TABS[S.tab].preview);
@@ -1087,7 +1087,7 @@ async function saveLetter() {
     S.versions = { ...S.versions, ...r.versions };
     if (S.app?.name !== name) return;
     S.previews.letter = r.preview;
-    if (S.app.pdfs.letter.exists) S.app.pdfs.letter.stale = true;
+    S.app.pdfs = r.pdfs;
     renderPdfState();
     if (S.tab === "letter") renderPreview("letter");
     status("Saved", "ok");

@@ -183,6 +183,25 @@ def test_a_non_latin_application_goes_through_preview_and_build(typst, ws):
         shutil.rmtree(REPO / "build" / name, ignore_errors=True)
 
 
+def test_a_real_build_records_what_marks_its_pdfs_out_of_date(typst, ws):
+    app = ws.apps_dir / EXAMPLE_APP
+    tailor = build.load_yaml(app / "tailor.yaml")
+    result = build.build_app(typst, app, False)
+    assert result["letter"]
+
+    def stale():
+        return {k: v["stale"] for k, v in ws.pdf_status(app, tailor).items()}
+
+    m = ws.master()
+    bullets = {b["id"]: b for p in m["positions"] for b in p["bullets"]}
+    bullets["rr-live-model"]["text"] += " An edit no page shows."  # the demo application does not select this one
+    ws.save_master(m)
+    assert stale() == {"resume": False, "letter": False}
+    bullets["rr-boosts"]["text"] += " An edit its resume shows."
+    ws.save_master(m)
+    assert stale() == {"resume": True, "letter": False}
+
+
 def test_committed_demo_pdfs_are_current(built):
     resume, letter = build.output_names(build.load_yaml(REPO / "examples/data/master.yaml"),
                                         build.load_yaml(APP / "tailor.yaml"), APP)

@@ -1,4 +1,5 @@
 """Application folders: submitting, snapshots, round-trip YAML, gaps and studio notes."""
+import os
 import re
 import subprocess
 import sys
@@ -73,6 +74,136 @@ def test_unsubmit_keeps_the_sent_pdfs_when_they_changed(ws):
     assert (kept / resume).read_bytes() == b"%PDF-1.7 sent"
 
 
+# ----- are the PDFs out of date? -----
+
+def built(ws, name=EXAMPLE_APP):
+    """Stand-in PDFs plus what a real build records about them."""
+    app, _, _ = fake_pdfs(ws, name)
+    tailor = build.load_yaml(app / "tailor.yaml")
+    build.record_build(app, False, ws.master(), tailor, (app / "cover-letter.md").read_text(encoding="utf-8"), {}, None)
+    return app
+
+
+def stale(ws, app=None):
+    app = app or ws.apps_dir / EXAMPLE_APP
+    return {k: v["stale"] for k, v in ws.pdf_status(app, build.load_yaml(app / "tailor.yaml")).items()}
+
+
+def edit_master(ws, change):
+    m = ws.master()
+    change(m)
+    ws.save_master(m)
+
+
+def bullet(master, bullet_id):
+    return next(b for o in master["positions"] + master["projects"] for b in o["bullets"] if b["id"] == bullet_id)
+
+
+def edit_tailor(ws, change):
+    path = ws.apps_dir / EXAMPLE_APP / "tailor.yaml"
+    t = build.load_yaml(path)
+    change(t)
+    ws.save_tailor(EXAMPLE_APP, t)
+
+
+UNUSED = "rr-live-model"  # a demo bullet the sample application does not select
+CURRENT = {"resume": False, "letter": False}
+RESUME_ONLY = {"resume": True, "letter": False}
+LETTER_ONLY = {"resume": False, "letter": True}
+BOTH = {"resume": True, "letter": True}
+
+
+def test_a_fresh_build_is_current(ws):
+    built(ws)
+    assert stale(ws) == CURRENT
+
+
+@pytest.mark.parametrize("change", [
+    lambda m: bullet(m, UNUSED).update(text="Reworded, but no application shows it"),
+    lambda m: m["positions"][0]["bullets"].append({"id": "brand-new", "text": "A new bullet", "tags": [], "priority": 3}),
+    lambda m: bullet(m, "rr-boosts").update(tags=["new-tag"], priority=3),  # neither is printed
+    lambda m: m["basics"].update(headline="A default the tailor's own headline replaces"),
+    lambda m: m["games"].append({"id": "new-game", "name": "New Game", "start": "2026-01", "end": "present"}),  # no Games section
+], ids=["unselected-bullet", "new-bullet", "tags-and-priority", "default-headline", "new-game"])
+def test_a_master_edit_that_does_not_reach_the_page_leaves_pdfs_current(ws, change):
+    built(ws)
+    edit_master(ws, change)
+    assert stale(ws) == CURRENT
+
+
+@pytest.mark.parametrize("change, expected", [
+    (lambda m: bullet(m, "rr-boosts").update(text="Reworded on the page"), RESUME_ONLY),
+    (lambda m: m["basics"].update(phone="555-0100"), BOTH),  # in both headers
+    (lambda m: m["skills"][0]["items"].append("A new skill"), RESUME_ONLY),
+], ids=["selected-bullet", "contact-line", "skills"])
+def test_a_master_edit_that_reaches_the_page_marks_pdfs_out_of_date(ws, change, expected):
+    built(ws)
+    edit_master(ws, change)
+    assert stale(ws) == expected
+
+
+def test_a_new_game_counts_for_the_template_that_lists_games(ws):
+    edit_tailor(ws, lambda t: t.update(template="resume-games"))
+    built(ws)
+    edit_master(ws, lambda m: m["games"].append({"id": "new-game", "name": "New Game", "start": "2026-01", "end": "present"}))
+    assert stale(ws) == RESUME_ONLY
+
+
+@pytest.mark.parametrize("change, expected", [
+    (lambda t: t.update(headline="A new headline"), BOTH),
+    (lambda t: t.update(template="resume-games"), RESUME_ONLY),
+    (lambda t: t["positions"]["pixel-forge-sr"]["bullets"].pop(), RESUME_ONLY),
+    (lambda t: t["cover_letter"].update(greeting="Hello,"), LETTER_ONLY),
+    (lambda t: t["target"].update(role="A role name is not printed"), CURRENT),
+], ids=["headline", "template", "bullet", "greeting", "role"])
+def test_tailor_edits(ws, change, expected):
+    built(ws)
+    edit_tailor(ws, change)
+    assert stale(ws) == expected
+
+
+def test_a_letter_edit_marks_only_the_letter(ws):
+    built(ws)
+    ws.save_text(EXAMPLE_APP, "cover-letter.md", "A different letter.\n")
+    assert stale(ws) == LETTER_ONLY
+
+
+def test_undoing_an_edit_makes_pdfs_current_again(ws):
+    built(ws)
+    before = bullet(ws.master(), "rr-boosts")["text"]
+    edit_master(ws, lambda m: bullet(m, "rr-boosts").update(text="Reworded"))
+    assert stale(ws) == RESUME_ONLY
+    edit_master(ws, lambda m: bullet(m, "rr-boosts").update(text=before))
+    assert stale(ws) == CURRENT
+
+
+def test_a_tailor_that_no_longer_builds_counts_as_out_of_date(ws):
+    built(ws)
+    edit_tailor(ws, lambda t: t["positions"]["pixel-forge-sr"]["bullets"].append("edited-in-by-hand"))
+    assert stale(ws) == RESUME_ONLY
+
+
+def test_pdfs_with_no_recorded_hash_fall_back_to_file_times(ws):
+    app, resume, letter = fake_pdfs(ws)
+    inputs = [ws.master_path, app / "tailor.yaml", app / "cover-letter.md"]
+    for f in inputs:
+        os.utime(f, (1_000_000, 1_000_000))
+    for f in (resume, letter):
+        os.utime(app / f, (2_000_000, 2_000_000))
+    assert stale(ws) == CURRENT
+    os.utime(ws.master_path, (3_000_000, 3_000_000))  # any newer input, as before
+    assert stale(ws) == BOTH
+
+
+def test_a_record_from_before_hashes_also_falls_back(ws):
+    app, _, _ = fake_pdfs(ws)
+    p = build.fit_path(app, False)
+    p.parent.mkdir(parents=True)
+    p.write_text('{"built": "2026-10-22 10:00", "resume": {}, "letter": null}', encoding="utf-8")
+    os.utime(ws.master_path, (4_000_000_000, 4_000_000_000))  # newer than the PDFs just written
+    assert stale(ws) == BOTH
+
+
 # ----- snapshots -----
 
 def test_snapshots_keep_sent_pdfs_but_not_built_ones(ws):
@@ -109,7 +240,7 @@ def test_restore_keeps_the_current_tracking_history(ws):
     (ws.apps_dir / EXAMPLE_APP / "tailor.yaml").write_text("headline: Edited later\n", encoding="utf-8")
     r = ws.restore_snapshot(snap["name"])
     assert tracking.read_text(encoding="utf-8") == logged  # what really happened stays
-    assert r["kept_tracking"] == 1
+    assert r["kept_tracking"] == len(list(ws.apps_dir.glob("*/tracking.yaml")))
     assert "From the snapshot" in (ws.apps_dir / EXAMPLE_APP / "tailor.yaml").read_text(encoding="utf-8")  # edits roll back
 
 
@@ -120,7 +251,7 @@ def test_restore_brings_back_tracking_for_a_deleted_application(ws):
     ws.delete_app(EXAMPLE_APP)
     r = ws.restore_snapshot(snap["name"])
     assert tracking.read_text(encoding="utf-8") == logged
-    assert r["kept_tracking"] == 0
+    assert r["kept_tracking"] == len(list(ws.apps_dir.glob("*/tracking.yaml"))) - 1  # all but the one that came back
     assert ws.track(ws.apps_dir / EXAMPLE_APP)["column"] == "screen"
 
 

@@ -315,15 +315,22 @@ class Workspace:
         return path.read_text(encoding="utf-8") if path.exists() else None
 
     def pdf_status(self, app, tailor, master=None):
+        """Each PDF's file name, whether it exists, and whether it is out of date: whether what
+        it would contain now differs from what it held when built. PDFs built before those
+        hashes were recorded compare file times instead."""
         master = master or self.master()
         resume, letter = build.output_names(master, tailor, app)
-        inputs = [self.master_path, app / "tailor.yaml", app / "cover-letter.md"]
-        newest = max((p.stat().st_mtime for p in inputs if p.exists()), default=0)
+        built = build.built_hashes(app, self.example)
+        if built:
+            now = build.pdf_hashes(master, tailor, self._read_text(app / "cover-letter.md") or "")
+        else:
+            inputs = [self.master_path, app / "tailor.yaml", app / "cover-letter.md"]
+            newest = max((p.stat().st_mtime for p in inputs if p.exists()), default=0)
         out = {}
         for key, fname in (("resume", resume), ("letter", letter)):
             p = app / fname
-            out[key] = {"file": fname, "exists": p.exists(),
-                        "stale": p.exists() and p.stat().st_mtime < newest}
+            stale = p.exists() and (built.get(key) != now[key] if built else p.stat().st_mtime < newest)
+            out[key] = {"file": fname, "exists": p.exists(), "stale": stale}
         return out
 
     def list_apps(self):

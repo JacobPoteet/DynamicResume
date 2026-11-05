@@ -158,7 +158,8 @@ def put_tailor(s, body, q, name):
     s.ws.require_editable(name)
     with LOCK:
         s.ws.save_tailor(name, body["tailor"])
-    return {"preview": s.preview(name, "resume", body["tailor"]), "versions": s.versions(name)}
+    return {"preview": s.preview(name, "resume", body["tailor"]), "versions": s.versions(name),
+            "pdfs": s.ws.pdf_status(s.ws.app_dir(name), body["tailor"])}
 
 
 @route("POST", "/api/apps/([^/]+)/preview/(resume|letter)")
@@ -171,7 +172,9 @@ def put_letter(s, body, q, name):
     s.ws.require_editable(name)
     with LOCK:
         s.ws.save_text(name, "cover-letter.md", body["text"])
-    return {"preview": s.preview(name, "letter", letter=body["text"]), "versions": s.versions(name)}
+    app = s.ws.app_dir(name)
+    return {"preview": s.preview(name, "letter", letter=body["text"]), "versions": s.versions(name),
+            "pdfs": s.ws.pdf_status(app, s.ws._read_yaml(app / "tailor.yaml") or {})}
 
 
 @route("POST", "/api/apps/([^/]+)/finalize")
