@@ -35,13 +35,13 @@ The app has four areas: Applications (a board of every application by stage, wit
 
 ## Submitted applications
 
-Mark submitted (in the editor, or `build.py submit`) copies the application's PDFs as they are, plus `tailor.yaml`, `cover-letter.md`, `listing.md`, `listing.yaml` and the current `master.yaml`, into `applications/<app>/submitted/` with a `submitted.yaml` (date, file names, whether the PDFs were older than the inputs). From then on `build <app>` refuses (a `--template` trial build to `build/` still works), `build-all` skips it, the app opens it read-only and shows the sent PDFs beside the frozen `tailor.yaml`, letter, listing and `master.yaml` (the live file if an older `submitted/` lacks one), the server refuses edits and drafts, and its bullets no longer block master deletes. Snapshots include the sent PDFs. Unsubmit removes `submitted/` when the folder's PDFs still match it, and otherwise keeps it as `submitted-<date>/`.
+Mark submitted (in the editor, or `build.py submit`) copies the application's PDFs as they are, plus `tailor.yaml`, `cover-letter.md`, `listing.md`, `listing.yaml`, `job.yaml` and the current `master.yaml`, into `applications/<app>/submitted/` with a `submitted.yaml` (date, file names, whether the PDFs were older than the inputs). From then on `build <app>` refuses (a `--template` trial build to `build/` still works), `build-all` skips it, the app opens it read-only and shows the sent PDFs beside the frozen `tailor.yaml`, letter, listing and `master.yaml` (the live file if an older `submitted/` lacks one), the server refuses edits and drafts, and its bullets no longer block master deletes. Snapshots include the sent PDFs. Unsubmit removes `submitted/` when the folder's PDFs still match it, and otherwise keeps it as `submitted-<date>/`.
 
-Never edit, rebuild, or unsubmit a submitted application unless the user asks. Tracking is the exception: `tracking.yaml` stays editable after submitting, and restoring a snapshot keeps the current `tracking.yaml` (the snapshot's copy is written only when an application has none).
+Never edit, rebuild, or unsubmit a submitted application unless the user asks. Tracking and job details are the exceptions: `tracking.yaml` and `job.yaml` stay editable after submitting (the app shows the live `job.yaml`, not the frozen copy), and restoring a snapshot keeps the current `tracking.yaml` (the snapshot's copy is written only when an application has none).
 
 ## Application tracking
 
-The home page is a board: Drafting (not submitted), Applied, Screen, Interviewing, Offer, and Rejected, Ghosted and Withdrew trays. Each column lists the most recently updated first. Dragging a card opens a dialog for the date it happened, an optional scheduled date and time, and a note; interviews also take round (numbered automatically), format, length, interviewers, prep notes and a debrief. Moving a draft to Applied runs Mark submitted with that date. Clicking a card opens its history, where every event can be edited or deleted. A card in Applied, Screen or Interviewing with nothing logged or scheduled for 30 days shows Quiet and offers Ghosted, which counts as a rejection but is left out of time-to-rejection. Timeline and Stats (reply rate, days to reply and to rejection by stage, funnel, applications per week, interviews by format, upcoming) are computed by `studio/tracking.py`.
+The home page is a board: Saved (leads not started), Drafting (not submitted), Applied, Screen, Interviewing, Offer, and Rejected, Ghosted and Withdrew trays. Each column lists the most recently updated first. Dragging a card opens a dialog for the date it happened, an optional scheduled date and time, and a note; interviews also take round (numbered automatically), format, length, interviewers, prep notes and a debrief. Moving a draft to Applied runs Mark submitted with that date. Clicking a card opens its history, where every event can be edited or deleted. A card in Applied, Screen or Interviewing with nothing logged or scheduled for 30 days shows Quiet and offers Ghosted, which counts as a rejection but is left out of time-to-rejection. Saved comes from `saved: true` in the application's `job.yaml`: New application has Save for later, which needs only a studio, a role and optionally a link; a card's Start drafting (or dragging it onto Drafting) clears the flag. Cards show the link and deadline, and the history dialog lists every job detail. Saved leads are not counted in Stats. Timeline and Stats (reply rate, days to reply and to rejection by stage, funnel, applications per week, interviews by format, upcoming) are computed by `studio/tracking.py`.
 
 When the user says they heard back ("Scopely rejected me yesterday"), log it with `python build.py track <app> <stage> --date ...`. Use the day it happened, not today, and never invent events. After a master change, run `check`, then `build-all` (both skip submitted ones) rather than building each folder.
 
@@ -150,6 +150,23 @@ events:
     debrief: how it went
     note: anything else            # any stage
 ```
+
+## job.yaml schema
+
+In each application folder, edited on the Listing tab (it stays open on submitted applications). Every field is optional and empty ones are dropped; the file is deleted when nothing is left. `studio/job.py` checks it. The `url` must be http or https, and the app only shows it as a link then. The `deadline` is `YYYY-MM-DD`.
+
+```yaml
+saved: true                        # a lead you have not started drafting (Saved column); removed by Start drafting
+url: https://example.com/jobs/123
+location: Remote (US)
+salary: 120k to 140k
+source: Studio careers page
+referral: Sam Lee
+deadline: 2026-11-20
+contact: Pat Kim, recruiter, pat@example.com
+```
+
+A redraft never touches `job.yaml`, and `Workspace.outside_edits` guards it like the other autosaved files. `GET /api/apps` and `GET /api/apps/<name>` carry it as `job`; `PUT /api/apps/<name>/job` saves it.
 
 ## listing.yaml schema
 

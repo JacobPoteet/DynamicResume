@@ -56,10 +56,10 @@ class Studio:
             # The board: an application created, submitted or tracked from the CLI or by Claude.
             apps = self.ws.app_dirs()
             v["apps"] = newest([self.ws.apps_dir, *apps, *(a / f for a in apps for f in (
-                "tracking.yaml", "tailor.yaml", f"{build.SUBMITTED}/submitted.yaml"))])
+                "tracking.yaml", "job.yaml", "tailor.yaml", f"{build.SUBMITTED}/submitted.yaml"))])
         if name:
             app = self.ws.apps_dir / name
-            v["app"] = newest([*(app / f for f in ("tailor.yaml", "listing.md", "listing.yaml", "cover-letter.md")),
+            v["app"] = newest([*(app / f for f in ("tailor.yaml", "listing.md", "listing.yaml", "cover-letter.md", "job.yaml")),
                                self.ws.studios_path])
         return v
 
@@ -135,7 +135,7 @@ def list_apps(s, body, q):
 def create_app(s, body, q):
     with LOCK:
         return s.ws.create_app_from(body.get("studio"), body.get("role"), body.get("listing"),
-                                    body.get("start_from") or None, bool(body.get("copy_letter")))
+                                    body.get("start_from") or None, bool(body.get("copy_letter")), body.get("job"))
 
 
 @route("GET", "/api/apps/([^/]+)")
@@ -227,6 +227,18 @@ def update_event(s, body, q, name, index):
 def delete_event(s, body, q, name, index):
     with LOCK:
         return s.ws.delete_event(name, int(index))
+
+
+# Job details stay open on submitted applications too, like tracking.
+@route("PUT", "/api/apps/([^/]+)/job")
+def put_job(s, body, q, name):
+    with LOCK:
+        clash = s.ws.outside_edits(name, ["job.yaml"], body.get("keep"))
+        if clash:
+            return {"conflict": clash}
+        job = s.ws.save_job(name, body.get("job"))
+        s.ws.mark_seen(name, ["job.yaml"])
+        return {"job": job, "track": s.ws.track(s.ws.app_dir(name)), "versions": s.versions(name)}
 
 
 @route("GET", "/api/stats")

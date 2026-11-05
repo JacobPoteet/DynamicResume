@@ -185,7 +185,7 @@ button.metric { font-size: 12px; }
 .metric.big b { font-size: 22px; }
 .metric small { font-size: 11px; color: var(--faint); }
 
-.board { display: grid; grid-template-columns: repeat(5, minmax(200px, 1fr)); gap: 10px; align-items: start; }
+.board { display: grid; grid-template-columns: repeat(6, minmax(190px, 1fr)); gap: 10px; align-items: start; }
 .col { background: color-mix(in srgb, var(--line) 55%, var(--bg)); border-radius: 8px; padding: 8px; min-height: 260px; border: 2px solid transparent; transition: border-color 0.1s, background 0.1s; }
 .col h2, .trays .tray { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .col h2 { display: flex; justify-content: space-between; padding: 2px 4px 8px; }
@@ -201,6 +201,7 @@ button.metric { font-size: 12px; }
 .tcard strong { line-height: 1.3; }
 .tc-role { font-size: 12px; color: var(--muted); }
 .tc-meta { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; font-size: 12px; margin-top: 4px; }
+.tc-link { color: var(--accent); }
 .tc-meta .ghosted { padding: 0 7px; font-size: 11px; }
 .trays { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
 .tray { justify-content: center; padding: 12px; border: 2px dashed var(--line-strong); background: transparent; border-radius: 8px; gap: 10px; }
@@ -441,6 +442,10 @@ button.ghost.quiet-danger:hover { color: var(--bad); background: var(--bad-soft)
 .mb .short-in { width: 100%; margin-top: 4px; font-size: 12px; }
 #impact .impact, .gap-items { margin: 0; padding-left: 32px; display: grid; gap: 6px; }
 .sent-pdf { width: 100%; height: calc(100vh - var(--top) - 150px); min-height: 480px; border: 1px solid var(--line); border-radius: 2px; background: #fff; display: block; }
+.job-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.job-grid .field:first-child { grid-column: 1 / -1; }
+.sent-job { margin: 0 0 12px; }
+.sent-job summary { cursor: pointer; font-weight: 600; font-size: 13px; padding: 4px 0; }
 .sent-note { background: var(--good-soft); color: var(--good); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
 .pane.left[inert] > :not(.sent-note) { opacity: 0.7; }
 .sheet { position: relative; }
@@ -495,7 +500,7 @@ button.ghost.quiet-danger:hover { color: var(--bad); background: var(--bad-soft)
   .tpl-word { display: none; }
 }
 @media (max-width: 1100px) {
-  .board { grid-template-columns: repeat(5, minmax(210px, 1fr)); overflow-x: auto; padding-bottom: 6px; }
+  .board { grid-template-columns: repeat(6, minmax(210px, 1fr)); overflow-x: auto; padding-bottom: 6px; }
 }
 @media (max-width: 960px) {
   .tl-row { grid-template-columns: 140px 1fr; }

@@ -20,13 +20,14 @@ from ruamel.yaml.error import YAMLError
 
 import build
 from build import ROOT, BuildError
-from studio import tracking
+from studio import job, tracking
 
 HISTORY_KEEP = 50
 APP_NAME = re.compile(r"^[^\W_][\w.-]*$")  # \w: letters and digits in any script, plus _
 SNAP_NAME = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}[A-Za-z0-9_-]*\.zip$")
 DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
-FROZEN = ("tailor.yaml", "cover-letter.md", "listing.md", "listing.yaml")  # copied next to the sent PDFs
+FROZEN = ("tailor.yaml", "cover-letter.md", "listing.md", "listing.yaml", job.FILE)  # copied next to the sent PDFs
+# job.yaml is copied too, but the app keeps showing the live one: it stays editable after sending.
 
 
 # ---------- round-trip YAML ----------
@@ -346,22 +347,23 @@ class Workspace:
                 "template": t.get("template") or build.DEFAULT_TEMPLATE,
                 "updated": max(mtimes, default=0), "pdfs": self.pdf_status(app, t, master),
                 "drafted": (app / "listing.yaml").exists(), "submitted": build.submission(app),
-                "track": self.track(app),
+                "track": self.track(app), "job": self.job(app),
             })
         apps.sort(key=lambda a: -a["updated"])
         return apps
 
-    def create_app(self, studio, role, listing, start_from=None, copy_letter=False):
+    def create_app(self, studio, role, listing, start_from=None, copy_letter=False, details=None):
         """Make an application folder and return its name. A studio and role already used get
         -2, -3 and so on after the usual name."""
-        return self.create_app_from(studio, role, listing, start_from, copy_letter)["name"]
+        return self.create_app_from(studio, role, listing, start_from, copy_letter, details)["name"]
 
-    def create_app_from(self, studio, role, listing, start_from=None, copy_letter=False):
+    def create_app_from(self, studio, role, listing, start_from=None, copy_letter=False, details=None):
         """create_app, plus `dropped`: the ids a copy left out because the master no longer has
         them. `start_from` is another application whose selection is copied (see `copy_tailor`)."""
         studio, role = (studio or "").strip(), (role or "").strip()
         if not studio or not role:
             raise BuildError("studio and role are both required")
+        details = job.clean_job(details)  # before the folder, so a bad link leaves nothing behind
         dropped, letter = [], None
         if start_from:
             starter, dropped, letter = self.copy_tailor(start_from, studio, role, copy_letter)
@@ -381,6 +383,8 @@ class Workspace:
         if letter is not None:
             (app / "cover-letter.md").write_text(letter, encoding="utf-8", newline="\n")
         self.save_tailor(name, starter)
+        if details:
+            self.save_job(name, details)
         return {"name": name, "dropped": dropped}
 
     COPIED = ("template", "paper", "headline", "games", "positions", "skills_first", "skill_groups", "projects",
@@ -484,7 +488,7 @@ class Workspace:
             "letter": self._read_text(source("cover-letter.md")),
             "pdfs": self.pdf_status(app, tailor, master), "submitted": sent,
             "studio_notes": self.studio_notes((tailor.get("target") or {}).get("studio")),
-            "track": self.track(app),
+            "track": self.track(app), "job": self.job(app),  # the live job.yaml, even once submitted
         }
 
     def require_editable(self, name):
@@ -561,7 +565,26 @@ class Workspace:
         return plain(data.get("events") or []) if isinstance(data, dict) else []
 
     def track(self, app, today=None):
-        return tracking.summarize(self.events(app), build.submission(app), today)
+        return tracking.summarize(self.events(app), build.submission(app), today, saved=self.job(app).get("saved", False))
+
+    # ----- job details (link, location, salary, ...; open after submitting, like tracking) -----
+
+    def job(self, app):
+        data = self._read_yaml(app / job.FILE)
+        return plain(data) if isinstance(data, dict) else {}
+
+    def save_job(self, name, details):
+        """Write job.yaml from the app's form. Empty fields are dropped, and the file is removed
+        when nothing is left. A submitted application can still change it."""
+        app = self.app_dir(name)
+        new = job.clean_job(details)
+        path = app / job.FILE
+        if not new:
+            path.unlink(missing_ok=True)
+            return {}
+        doc = rt_load(path.read_text(encoding="utf-8")) if path.exists() else None
+        path.write_text(rt_dump(merge(doc, new)), encoding="utf-8", newline="\n")
+        return self.job(app)
 
     def add_event(self, name, event):
         """Log a stage change or note. Tracking stays open after an application is submitted.
