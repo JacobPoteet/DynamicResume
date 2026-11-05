@@ -193,9 +193,11 @@ async function showEditor(name, tab) {
       <nav class="tabs">${tabs.map(([k, l]) => `<a href="#/app/${enc(name)}/${k}" class="${k === tab ? "on" : ""}" ${k === tab ? `aria-current="page"` : ""}>${l}</a>`).join("")}</nav>
       <span class="grow"></span>${tools}
     </div>
+    <section class="card" id="impact" hidden></section>
     <div class="panes"><div class="pane left" id="left"></div><div class="pane right" id="right"></div></div>
   </div>`);
   renderTitle();
+  renderImpact();
   TABS[tab].left();
   const kind = TABS[tab].preview;
   if (sub) return showSent(kind);
@@ -858,12 +860,16 @@ document.addEventListener("click", async (e) => {
     S.ui.editing = null;
     changed(backToRow);
   } else if (act === "master-save") {
-    const b = findBullet(li.dataset.kind, li.dataset.owner, li.dataset.id);
     const text = li.querySelector("textarea").value.replace(/\s+/g, " ").trim();
     if (!text) return;
-    const before = b.text;
-    b.text = text;
+    let b, before;
     try {
+      // Edit the file as it is now: master.yaml may have changed on disk since this page loaded it.
+      S.master = (await api("GET", "/api/master")).master;
+      b = findBullet(li.dataset.kind, li.dataset.owner, li.dataset.id);
+      if (!b) throw new Error("This bullet is no longer in master.yaml.");
+      before = b.text;
+      b.text = text;
       const r = await api("PUT", "/api/master", { master: S.master });
       S.master = r.master;
       S.usage = r.usage;
@@ -874,8 +880,10 @@ document.addEventListener("click", async (e) => {
       const others = (S.usage[b.id] || []).filter((n) => n !== S.app.name);
       toast(`Saved to master.${others.length ? ` Also used by ${others.map(esc).join(", ")}.` : ""}`);
       changed(backToRow);
+      await saveNow();  // the check reads this application's tailor from disk
+      runImpact();
     } catch (err) {
-      b.text = before;
+      if (b) b.text = before;
       toast(esc(err.message), true);
     }
   } else if (act === "short") {
@@ -1513,7 +1521,7 @@ document.addEventListener("change", (e) => {
 
 document.addEventListener("click", async (e) => {
   const el = e.target.closest("[data-mact]");
-  if (!el || !el.closest(".master")) return;
+  if (!el || !el.closest(".master, #impact")) return;
   const act = el.dataset.mact;
   const card = el.closest("[data-kind]");
   const owner = card && M.draft[card.dataset.kind][Number(card.dataset.oi)];
