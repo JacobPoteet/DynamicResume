@@ -319,14 +319,24 @@ class Workspace:
                 "positions": positions}
 
     def load_app(self, name):
+        """An application's files for the editor. A submitted one opens as it was sent: each
+        file comes from submitted/, or the live folder if an older submitted/ lacks it. `master`
+        is that frozen master, or None when the editor should use the live one."""
         app = self.app_dir(name)
-        tailor = self._read_yaml(app / "tailor.yaml") or {}
+        sent = build.submission(app)
+
+        def source(filename):
+            frozen = app / build.SUBMITTED / filename
+            return frozen if sent and frozen.exists() else app / filename
+
+        tailor = self._read_yaml(source("tailor.yaml")) or {}
+        master = self._read_yaml(source("master.yaml"))
         return {
-            "name": name, "tailor": tailor,
-            "listing": self._read_text(app / "listing.md") or "",
-            "listing_spec": self._read_yaml(app / "listing.yaml"),
-            "letter": self._read_text(app / "cover-letter.md"),
-            "pdfs": self.pdf_status(app, tailor), "submitted": build.submission(app),
+            "name": name, "tailor": tailor, "master": master,
+            "listing": self._read_text(source("listing.md")) or "",
+            "listing_spec": self._read_yaml(source("listing.yaml")),
+            "letter": self._read_text(source("cover-letter.md")),
+            "pdfs": self.pdf_status(app, tailor, master), "submitted": sent,
             "studio_notes": self.studio_notes((tailor.get("target") or {}).get("studio")),
             "track": self.track(app),
         }

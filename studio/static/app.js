@@ -157,7 +157,7 @@ async function loadApp(name) {
   const [app, m, v] = await Promise.all([
     api("GET", `/api/apps/${enc(name)}`), api("GET", "/api/master"), api("GET", `/api/versions?app=${enc(name)}`),
   ]);
-  S.master = m.master;
+  S.master = app.master || m.master;  // a submitted application renders from its frozen copy
   S.usage = m.usage;
   S.app = app;
   normalizeTailor(app.tailor);

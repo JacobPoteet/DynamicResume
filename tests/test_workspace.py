@@ -184,3 +184,54 @@ def test_create_app_never_picks_a_variant_with_its_partner(ws):
 def test_app_names_cannot_escape_the_folder(ws, name):
     with pytest.raises(build.BuildError):
         ws.app_dir(name)
+
+
+# ----- a submitted application opens as it was sent -----
+
+def edit_after_sending(ws, app):
+    m = ws.master()
+    first = m["positions"][0]["bullets"][0]
+    sent = first["text"]
+    first["text"] = "Edited after sending."
+    ws.save_master(m)
+    t = build.load_yaml(app / "tailor.yaml")
+    t["headline"] = "Edited after sending"
+    ws.save_tailor(EXAMPLE_APP, t)
+    ws.save_text(EXAMPLE_APP, "cover-letter.md", "Edited after sending.")
+    ws.save_text(EXAMPLE_APP, "listing.md", "Edited after sending.")
+    (app / "listing.yaml").write_text("studio: Edited after sending\n", encoding="utf-8")
+    return sent
+
+
+def test_a_submitted_application_loads_what_was_sent(ws):
+    app, _, _ = fake_pdfs(ws)
+    before = ws.load_app(EXAMPLE_APP)
+    ws.submit_app(EXAMPLE_APP, "2026-10-22")
+    sent = edit_after_sending(ws, app)
+    loaded = ws.load_app(EXAMPLE_APP)
+    assert loaded["master"]["positions"][0]["bullets"][0]["text"] == sent
+    assert ws.master()["positions"][0]["bullets"][0]["text"] == "Edited after sending."
+    for key in ("tailor", "letter", "listing", "listing_spec"):
+        assert loaded[key] == before[key], key
+        assert "Edited after sending" not in str(loaded[key]), key
+
+
+def test_a_submitted_application_falls_back_to_live_files_it_lacks(ws):
+    app, _, _ = fake_pdfs(ws)
+    ws.submit_app(EXAMPLE_APP, "2026-10-22")
+    edit_after_sending(ws, app)
+    for f in ("master.yaml", "tailor.yaml", "cover-letter.md", "listing.md", "listing.yaml"):
+        (app / "submitted" / f).unlink()
+    loaded = ws.load_app(EXAMPLE_APP)
+    assert loaded["master"] is None  # the editor then uses the live master
+    assert loaded["tailor"]["headline"] == "Edited after sending"
+    assert loaded["letter"] == "Edited after sending."
+    assert loaded["listing"] == "Edited after sending."
+    assert loaded["listing_spec"]["studio"] == "Edited after sending"
+
+
+def test_an_unsubmitted_application_loads_the_live_files(ws):
+    app, _, _ = fake_pdfs(ws)
+    ws.save_text(EXAMPLE_APP, "cover-letter.md", "Live letter.")
+    loaded = ws.load_app(EXAMPLE_APP)
+    assert loaded["master"] is None and loaded["letter"] == "Live letter."
