@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 import build
 from build import HOME, ROOT, BuildError
 from studio.draft import Drafts, claude_path
+from studio.fit import STOP, fit_app
 from studio.workspace import Workspace
 
 STATIC = Path(__file__).parent / "static"
@@ -98,7 +99,8 @@ class Studio:
             r = build.build_app(self.typst, app, self.example)
         return {"resume": self.url(r["resume"]), "resume_fill": r["resume_fill"],
                 "letter": r["letter"] and self.url(r["letter"]), "letter_fill": r["letter_fill"], "warnings": warnings,
-                "pdfs": self.ws.pdf_status(app, self.ws._read_yaml(app / "tailor.yaml") or {})}
+                "pdfs": self.ws.pdf_status(app, self.ws._read_yaml(app / "tailor.yaml") or {}),
+                "changes": self.ws.changes(app.name)}
 
 
 # ---------- routes ----------
@@ -119,7 +121,7 @@ def init(s, body, q):
             "papers": list(build.PAPERS), "default_paper": build.DEFAULT_PAPER,
             "claude": bool(claude_path()), "data_home": None if s.example or HOME == ROOT else str(HOME),
             "needs_master": not s.ws.master_path.exists(), "master_file": build.rel(s.ws.master_path),
-            "em_dash": build.EM_DASH, "banned": build.BANNED}
+            "em_dash": build.EM_DASH, "banned": build.BANNED, "stop_words": sorted(STOP)}
 
 
 @route("GET", "/api/versions")
@@ -172,7 +174,23 @@ def put_tailor(s, body, q, name):
     except BuildError:
         after = {}  # a broken master or studios.yaml: the preview below reports it
     return {"preview": s.preview(name, "resume", body["tailor"]), "versions": s.versions(name),
-            "warnings": warnings, **after}
+            "warnings": warnings, "changes": s.ws.changes(name), **after}
+
+
+@route("POST", "/api/apps/([^/]+)/fit")
+def fit_page(s, body, q, name):
+    """Fit to page: the same logic as a draft and `build.py fit`, on the saved tailor.yaml."""
+    s.ws.require_editable(name)
+    if s.drafts.status(name).get("state") == "running":
+        raise BuildError("a Claude draft is running for this application; wait for it to finish")
+    with LOCK:
+        clash = s.ws.outside_edits(name, ["tailor.yaml"], body.get("keep"))
+        if clash:
+            return {"conflict": clash}
+        tailor, report = fit_app(s.ws, s.typst, name, s.build_dir / name / "fit")
+        s.ws.mark_seen(name, ["tailor.yaml"])
+    return {"tailor": tailor, "report": report, "preview": s.preview(name, "resume"), "versions": s.versions(name),
+            "pdfs": s.ws.pdf_status(s.ws.app_dir(name), tailor), "changes": s.ws.changes(name)}
 
 
 @route("POST", "/api/apps/([^/]+)/preview/(resume|letter)")
@@ -191,7 +209,7 @@ def put_letter(s, body, q, name):
         s.ws.mark_seen(name, ["cover-letter.md"])
     app = s.ws.app_dir(name)
     return {"preview": s.preview(name, "letter", letter=body["text"]), "versions": s.versions(name),
-            "pdfs": s.ws.pdf_status(app, s.ws._read_yaml(app / "tailor.yaml") or {})}
+            "pdfs": s.ws.pdf_status(app, s.ws._read_yaml(app / "tailor.yaml") or {}), "changes": s.ws.changes(name)}
 
 
 @route("POST", "/api/apps/([^/]+)/finalize")

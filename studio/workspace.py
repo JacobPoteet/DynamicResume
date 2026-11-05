@@ -21,6 +21,7 @@ from ruamel.yaml.error import YAMLError
 import build
 from build import ROOT, BuildError
 from studio import job, send, tracking
+from studio.changes import compare
 
 HISTORY_KEEP = 50
 APP_NAME = re.compile(r"^[^\W_][\w.-]*$")  # \w: letters and digits in any script, plus _
@@ -556,7 +557,23 @@ class Workspace:
             "pdfs": self.pdf_status(app, tailor, master), "submitted": sent,
             "studio_notes": self.studio_notes((tailor.get("target") or {}).get("studio")),
             "track": self.track(app), "job": self.job(app),  # the live job.yaml, even once submitted
+            "changes": None if sent else self.changes(name),
         }
+
+    def changes(self, name):
+        """What differs from the last kept version of this application, or None. A broken master
+        or tailor reports nothing here: the preview is where that error shows."""
+        app = self.app_dir(name)
+        tailor = self._read_yaml(app / "tailor.yaml") or {}
+        letter = self._read_text(app / "cover-letter.md") or ""
+        version = build.compare_version(app, self.example, tailor, letter)
+        if not version:
+            return None
+        try:
+            diff = compare(self.master(), version["tailor"], tailor, version["letter"], letter)
+        except (BuildError, AttributeError, TypeError, KeyError):
+            return None
+        return {"since": version["when"], **diff} if diff else None
 
     def send_text(self, name):
         """What the Send dialog shows for a draft: its plain text for forms, PDF state and fill,
@@ -721,6 +738,7 @@ class Workspace:
         everything but the PDFs a rebuild can make again (sent PDFs are kept)."""
         app = self.app_dir(name)
         backup = self.create_snapshot(f"before-delete-{name}")
+        build.versions_path(app, self.example).unlink(missing_ok=True)
         shutil.rmtree(app)
         return {"deleted": name, "backup": backup["name"]}
 

@@ -261,11 +261,13 @@ async function showEditor(name, tab) {
     </div>
     <div class="conflict" id="conflict" role="alert" hidden></div>
     <section class="card" id="impact" hidden></section>
+    <section class="card" id="fit-report" hidden></section>
     <div class="panes"><div class="pane left" id="left"></div><div class="pane right" id="right"></div></div>
   </div>`);
   renderTitle();
   renderConflict();
   renderImpact();
+  renderFitReport();
   TABS[tab].left();
   const kind = TABS[tab].preview;
   if (sub) return showSent(kind);
@@ -349,6 +351,7 @@ async function finalize() {
   try {
     const r = await api("POST", `/api/apps/${enc(S.app.name)}/finalize`);
     S.app.pdfs = r.pdfs;
+    noteChanges(r);
     renderPdfState();
     const parts = [`<a href="${r.resume}" target="_blank">Resume</a> (${describeFill(r.resume_fill)})`];
     if (r.letter) parts.push(`<a href="${r.letter}" target="_blank">Cover letter</a> (${describeFill(r.letter_fill)})`);
@@ -400,6 +403,7 @@ async function saveNow() {
     if (seq !== saveSeq || !S.app || S.app.name !== name) return;
     S.previews.resume = r.preview;
     if (r.pdfs) S.app.pdfs = r.pdfs;  // a studio rename changes the file names
+    noteChanges(r);
     if (r.studio_notes != null && !listingDirty.has("notes")) S.app.studio_notes = r.studio_notes;
     if (r.warnings?.length) toast(r.warnings.map(esc).join("<br>"), true, 9000);
     renderPdfState();
@@ -550,7 +554,7 @@ async function renderPreview(kind) {
   el.innerHTML = `
     <div class="pv-head">
       <div class="fillline">${line}<span class="grow"></span>
-        <span class="pv-busy" role="status"><span class="spinner"></span>Updating</span>${fitControl()}</div>
+        <span class="pv-busy" role="status"><span class="spinner"></span>Updating</span>${resume ? `<button class="small" data-fit-act="run" title="Over a page: use short texts, then cut the bullets that fit the listing least. Room left: suggest bullets to add.">Fit to page</button>` : ""}${fitControl()}</div>
       <div class="meter ${meter}" role="img" aria-label="${label}"><i style="width:${over ? 100 : pct}%"></i>${resume && !over ? `<b style="left:90%" title="90%: counts as a full page"></b>` : ""}</div>
       ${warnings ? `<ul class="warnings">${warnings}</ul>` : ""}
     </div>
@@ -586,13 +590,10 @@ function selected(kind, id) {
 
 // ----- listing match: ranks the unselected bullets and drives the requirement chips -----
 
-const STOP = new Set(("about above after again along also among based being below between build built could " +
-  "design designed designer during each every first from have having into large like made make making more most " +
-  "other over same should since some such than that their them then there these they this those through under " +
-  "using very well were what when where which while will with within work worked working would years your").split(" "));
-
+// studio/fit.py scores bullets the same way to decide what Fit to page cuts.
 function words(text) {
-  return new Set((text.toLowerCase().match(/[a-z][a-z0-9+#/-]{4,}/g) || []).filter((w) => !STOP.has(w)));
+  const stop = new Set(S.init.stop_words);
+  return new Set((text.toLowerCase().match(/[a-z][a-z0-9+#/-]{4,}/g) || []).filter((w) => !stop.has(w)));
 }
 
 let listingWordsCache = { text: null, words: new Set() };
@@ -682,13 +683,14 @@ function renderResumeLeft() {
       <label class="field">Role<input data-field="role" value="${esc(tg.role)}"></label>
       <label class="field wide">Headline (one line under your name)<input data-field="headline" value="${esc(t.headline)}"
         placeholder="${esc((m.basics || {}).headline || "Your title | two to four focus areas from the listing")}"></label>
-    </div>`;
+    </div><div id="changes-slot"></div>`;
   html += reqsBlock() + unknownBlock();
   if ((m.games || []).length) html += sec("Games", (t.template || S.init.default_template) === "resume-games" ? "" : "only resume-games shows this section") + gamesBlock();
   html += sec("Experience", "drag to reorder (Alt+Up/Down from the keyboard), double-click a bullet to edit") +m.positions.map((p) => ownerBlock(p, "positions")).join("");
   if ((m.projects || []).length) html += sec("Personal projects", "selected projects print in this order") + projectOrder().map((p) => ownerBlock(p, "projects")).join("");
   html += sec("Skills", "click a skill to move it to the front of its line") + skillsBlock();
   left.innerHTML = html;
+  renderChanges();
   const ta = left.querySelector("textarea[data-edit]");
   if (ta) {
     ta.focus();
@@ -1191,6 +1193,7 @@ async function saveLetter() {
     if (S.app?.name !== name) return;
     S.previews.letter = r.preview;
     S.app.pdfs = r.pdfs;
+    noteChanges(r);
     renderPdfState();
     if (S.tab === "letter") renderPreview("letter");
     status("Saved", "ok");
@@ -1427,7 +1430,7 @@ function renderDraftBox() {
     ${redraft ? " Redrafting replaces the current bullet choices, overrides and cover letter; a snapshot is taken first." : ""}</p>`;
   if (running) html = `<div class="row"><span class="pill row" style="gap:6px"><span class="spinner" style="width:9px;height:9px"></span>Drafting… ${secs} s</span><span class="muted" style="font-size:12px">usually one to three minutes</span></div>`;
   if (j.state === "error") html += `<p><span class="pill bad">Draft failed</span> ${esc(j.error)}</p>`;
-  if (j.state === "done") html += `<p><span class="pill good">Draft written</span> ${j.result?.warnings?.length ? esc(j.result.warnings.join("; ")) : ""}</p>`;
+  if (j.state === "done") html += `<p><span class="pill good">Draft written</span> ${j.result?.fit ? esc(fitSummary(j.result.fit)) : ""} ${j.result?.warnings?.length ? esc(j.result.warnings.join("; ")) : ""}</p>`;
   if (running || j.state === "error") html += `<div class="draft-log mono">${j.log.map(esc).join("\n")}</div>`;
   box.innerHTML = html;
 }
@@ -1471,6 +1474,9 @@ function watchDraft(name) {
     if (j.state === "done" && S.app?.name === name) {
       await loadApp(name);
       S.draft[name] = j;
+      const fit = j.result?.fit;
+      if (fit?.changed || fit?.suggest?.length) S.fitReports[name] = fit;
+      else delete S.fitReports[name];
       location.hash = `#/app/${enc(name)}/resume`;
       showEditor(name, "resume");
       toast(`Draft ready.${j.result?.notes ? ` ${esc(j.result.notes)}` : ""}`, false, 9000);
@@ -1487,6 +1493,143 @@ async function checkDraft(name) {
     if (j.state === "running") watchDraft(name);
     renderDraftBox();
   } catch { /* the draft box just stays idle */ }
+}
+
+// ----- fit to page: the report panel, Undo, and adding a suggested bullet -----
+
+S.fitReports = {};  // application name -> the last report, until it is dismissed
+
+function pageLabel(f) {
+  if (!f || f.pages == null) return "unknown";
+  return f.pages > 1 ? `${f.pages} pages` : `1 page, ${Math.round(f.fill * 100)}% full`;
+}
+
+function fitSummary(r) {
+  if (!r.measured) return "";
+  const did = [];
+  if (r.shortened.length) did.push(`shortened ${plural(r.shortened.length, "bullet")}`);
+  if (r.cut.length) did.push(`cut ${plural(r.cut.length, "bullet")}`);
+  if (!did.length) return `${pageLabel(r.after)}.`;
+  return `${pageLabel(r.before)} to ${pageLabel(r.after)}: ${did.join(", ")}.`;
+}
+
+function renderFitReport() {
+  const el = $("#fit-report");
+  if (!el) return;
+  const r = S.app && S.fitReports[S.app.name];
+  el.hidden = !r;
+  if (!r) return (el.innerHTML = "");
+  const rows = (items, extra) => items.map((b) => `<li><span class="muted">${esc(b.where)}:</span> ${esc(b.text)}${extra(b)}</li>`).join("");
+  const group = (title, html) => (html ? `<div><strong>${esc(title)}</strong><ul class="fit-list">${html}</ul></div>` : "");
+  el.innerHTML = `<div class="hd"><h2>Fit to page</h2><span class="muted">${esc(fitSummary(r))}</span><span class="grow"></span>
+      ${r.previous ? `<button class="small" data-fit-act="undo" title="Put back the bullets and wording as they were before the fit">Undo</button>` : ""}
+      <button class="ghost small" data-fit-act="dismiss">Dismiss</button></div>
+    <div class="bd stack">
+      ${r.over ? `<p class="fit-note"><span class="pill bad">Still over one page</span> Every position is down to its last bullet, so the rest is your call.</p>` : ""}
+      ${group("Using the short text", rows(r.shortened, () => ""))}
+      ${group("Cut", rows(r.cut, (b) => `<div class="faint">${esc(b.reason)}</div>`))}
+      ${r.uncovered.length ? `<p class="fit-note"><span class="pill warn">No longer covered</span> ${r.uncovered.map((u) => esc(u.text) + (u.must ? " (required)" : "")).join("; ")}</p>` : ""}
+      ${r.cut.length ? `<p class="fit-note muted">Check that the cover letter does not lean on a cut bullet.</p>` : ""}
+      ${group("Room left: bullets you could add", rows(r.suggest, (b) => `<div class="faint">${esc(b.reason)}. The page would be ${Math.round(b.fill * 100)}% full.
+        <button class="small" data-fit-act="add" data-kind="${esc(b.kind)}" data-owner="${esc(b.owner)}" data-id="${esc(b.id)}" aria-label="Add ${esc(b.id)}">Add</button></div>`))}
+    </div>`;
+}
+
+async function runFit(btn) {
+  if (S.conflict) return toast(CHOOSE_FIRST, true);
+  const name = S.app.name;
+  await saveNow();
+  if (S.conflict) return;
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span>Fitting…`;
+  setBusy(true);
+  try {
+    const r = await api("POST", `/api/apps/${enc(name)}/fit`, { keep: S.keep });
+    if (r.conflict) return showConflict(r.conflict, name);
+    if (S.app?.name !== name) return;
+    S.versions = { ...S.versions, ...r.versions };
+    S.app.tailor = normalizeTailor(r.tailor);
+    S.app.pdfs = r.pdfs;
+    S.app.changes = r.changes;
+    S.previews.resume = r.preview;
+    const report = r.report;
+    if (report.changed || report.suggest.length) S.fitReports[name] = report;
+    else {
+      delete S.fitReports[name];
+      toast(report.measured ? `${esc(fitSummary(report))} Nothing to change.` : "Could not measure the page, so nothing was changed.", !report.measured, 6000);
+    }
+    renderFitReport();
+    renderPdfState();
+    rerenderLeft();
+    if (TABS[S.tab]?.preview === "resume") renderPreview("resume");
+    else setBusy(false);
+  } catch (e) {
+    toast(esc(e.message), true, 8000);
+    setBusy(false);
+    btn.disabled = false;
+    btn.textContent = "Fit to page";
+  }
+}
+
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-fit-act]");
+  if (!el || !S.app) return;
+  const name = S.app.name;
+  const report = S.fitReports[name];
+  const act = el.dataset.fitAct;
+  if (act === "run") return runFit(el);
+  if (act === "dismiss") delete S.fitReports[name];
+  if (act === "undo" && report?.previous) {
+    if (S.conflict) return toast(CHOOSE_FIRST, true);
+    S.app.tailor = normalizeTailor(clone(report.previous));
+    delete S.fitReports[name];
+    queueSave(0);
+    rerenderLeft();
+  }
+  if (act === "add" && report) {
+    const sel = S.app.tailor[el.dataset.kind]?.[el.dataset.owner];
+    if (!sel) return;
+    sel.bullets = [...(sel.bullets || []), el.dataset.id];
+    report.suggest = report.suggest.filter((b) => b.id !== el.dataset.id);
+    if (!report.suggest.length && !report.changed) delete S.fitReports[name];
+    queueSave(0);
+    rerenderLeft();
+  }
+  renderFitReport();
+});
+
+// ----- what changed since the last kept version (a build, or the version before a redraft) -----
+
+function noteChanges(r) {
+  if (!("changes" in r)) return;
+  S.app.changes = r.changes;
+  renderChanges();
+}
+
+function renderChanges() {
+  const el = $("#changes-slot");
+  if (!el) return;
+  const c = S.app.changes;
+  if (!c) return (el.innerHTML = "");
+  const rows = (items, html) => items?.length ? items.map(html).join("") : "";
+  const group = (title, list) => (list ? `<div><strong>${esc(title)}</strong><ul class="fit-list">${list}</ul></div>` : "");
+  const bullet = (b) => `<li><span class="muted">${esc(b.where)}:</span> ${esc(b.text)}</li>`;
+  const counts = [["added", c.added], ["removed", c.removed], ["moved", c.moved], ["reworded", c.reworded]]
+    .filter(([, v]) => v?.length).map(([k, v]) => `${v.length} ${k}`);
+  if (c.fields?.length) counts.push(plural(c.fields.length, "other change"));
+  if (c.letter?.length) counts.push("letter changed");
+  el.innerHTML = `<details class="changes" ${S.ui.changesOpen ? "open" : ""}>
+    <summary><strong>Changed since ${esc(c.since)}</strong> <span class="muted">${esc(counts.join(", "))}</span></summary>
+    <div class="stack">
+      ${group("Added", rows(c.added, bullet))}
+      ${group("Removed", rows(c.removed, bullet))}
+      ${group("Moved", rows(c.moved, bullet))}
+      ${group("Reworded", rows(c.reworded, (b) => `<li><span class="muted">${esc(b.where)}:</span> ${esc(b.text)}<div class="faint">Was: ${esc(b.before)}</div></li>`))}
+      ${group("Other", rows(c.fields, (f) => `<li>${esc(f.label)}: ${esc(f.after)}<div class="faint">Was: ${esc(f.before)}</div></li>`))}
+      ${group("Cover letter", rows(c.letter, (p) => `<li><span class="pill ${p.change === "added" ? "good" : "plain"}">${p.change === "added" ? "New" : "Removed"}</span> ${esc(p.text)}</li>`))}
+    </div>
+  </details>`;
+  el.firstElementChild.ontoggle = (e) => (S.ui.changesOpen = e.target.open);
 }
 
 ON_OUTSIDE_EDIT.blocked = () =>

@@ -39,6 +39,8 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 **Edit the whole master in the app.** The Master page reads like a document: an outline on the left, each bullet as plain text until you click it, and search and tag filters for a long career. Forms cover contact details, education, games, skills, positions, projects, ids and `variant_of`, so the Raw YAML tab is there when you want it rather than when you have to. Banned phrases and em dashes are flagged as you type.
 
+**Fit to page.** A headless draft is measured and fitted once it is written, and the Fit to page button does the same at any time. Over a page, it uses shorter texts, then cuts the bullets that fit the listing least, and it tells you what went, with Undo. It never rewords anything or shrinks fonts. With room left, it suggests bullets you could add. The Resume tab also shows what changed since the last version: bullets added, removed, moved or reworded, and changes to the letter, however the change was made.
+
 **Recurring gaps.** Each draft lists what the listing asks for that your master cannot back up, with a short topic. Master, Gaps ranks those topics across every application, so you know which bullets are worth writing next.
 
 **Studio notes.** Notes about a studio (games of theirs you've played, people you know there) live in `data/studios.yaml`, are edited on the Listing tab, and go into the draft for the cover letter. Renaming a studio in the editor brings its notes and PDFs along.
