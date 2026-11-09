@@ -8,6 +8,10 @@ Follows the workflow standard in the user CLAUDE.md: squash merges, `/ship` to l
 
 **Personal rules and notes.** Anything specific to the user's own career, background, or notes lives in the gitignored `CLAUDE.local.md` at the repo root. Read it before tailoring. Never copy its contents, or anything that reveals where private notes are kept, into a committed file, commit message, or PR.
 
+## Area rules
+
+This file holds what a tailoring session or a headless draft needs. Three files in `.claude/rules/` load when Claude touches what they cover: `app.md` (how the editor app behaves), `tracking.md` (the board and the tracking and job schemas) and `code.md` (what each source file does, ATS rules for templates). Read the matching one before changing an area its files did not load.
+
 ## Commands
 
 ```
@@ -32,37 +36,17 @@ Needs `typst` (`winget install Typst.Typst`) and `pip install -r requirements.tx
 
 **After editing the master,** run `python build.py check`. It rebuilds every unsubmitted application into `build/check/`, never the application folders, and compares each resume with its last real build. It exits nonzero when one goes past one page. The Master page and Save to master on the Resume tab run the same check after every save. Then fix what it reports (a `short` text, a different bullet) before building.
 
-With no `data/master.yaml`, the app opens on a first-run screen that offers to copy the demo master there, and `build`, `check` and `new` print a clear `ERROR:` line.
-
-The app has four areas: Applications (a board of every application by stage, with List, Timeline and Stats views and New application; see Application tracking below; deleting from List takes a snapshot first). A search box (every word must appear in studio or role) and a stage menu filter Board and List, and List sorts by studio, stage, applied date or last update from its column headers; the choices are remembered per browser (`T` in `tracker.js`). New application has an optional "Start from" menu: `Workspace.copy_tailor` copies `positions`, `overrides`, `short`, `headline`, `skills_first`, `skill_groups`, `projects`, `games`, `template` and `paper` (from the frozen `submitted/tailor.yaml` when the source was sent) plus, if asked, `cover-letter.md`, never `submitted/`, tracking, `listing.yaml`, job details or PDFs, and drops ids the master no longer has (the app lists them). Applying again to the same studio and role gets a `-2`, `-3` folder instead of an error, the editor (Resume, Cover letter and Listing tabs beside a live page preview, with Build PDFs and Send), Master (see Master page below, or the raw YAML; a Gaps view ranks what listings asked for that the master lacks), and Snapshots. The app and the CLI read and write the same files, so either can be used at any time. The app saves `tailor.yaml` on every change and rebuilds the preview; it notices edits made to the files outside the app (by Claude or a text editor) within a couple of seconds and reloads. While you are mid-edit the reload waits until you finish, and the server refuses an autosave that would overwrite a file changed outside (`Workspace.outside_edits`): the editor keeps your edit and asks whether to use the file on disk or keep your edit. It writes YAML with ruamel round-trip, so comments and layout in `master.yaml` and `tailor.yaml` survive, and every master save keeps the previous file in `snapshots/master-history/`.
-
-## Master page
-
-The Edit tab (`studio/static/app.js`, the master section) covers the whole file: contact details, education, games, skills, positions, projects and every bullet field. A sticky outline on the left scrolls to each section and marks unsaved ones. A bullet reads as plain text with its priority and tags until clicked, then expands in place to edit its text, short version, tags, priority, id, `variant_of` and section; Done or Esc collapses it. The expanded row estimates lines on the page (`CHARS_PER_LINE`) and flags em dashes and banned phrases as you type (the rules come from `/api/init`, which reads `build.py`). Search, a tag menu and a Show menu hide what does not match without redrawing, and reordering is off while a filter is on. Up and down buttons reorder bullets, positions, projects, games, education and skill groups. Moving a bullet to another section takes its `variant_of` partners with it.
-
-Ids of new items come from the first name or text entered. An id can change only while nothing uses it, and pointers to it (`variant_of`, a position's `game`) follow; a renamed bullet loses any YAML comment attached to it, because `merge` matches list items by id. Edits collect in `M.draft` and are written together on Save. The client checks required fields and date shapes first (`masterProblems`). The server then refuses (Edit or Raw YAML) blank required fields and repeated ids (`check_fields`), and any save that takes away what an unsubmitted application names: a bullet removed, renamed or moved; a position, project, game or skill group removed or renamed; or a game a position still points at (`check_removals`). After a save, the page shows which applications the change affects.
-
-The app's scripts load as plain globals, so a new top-level name must not repeat one in another script or the same file. A test checks this.
-
 ## Submitted applications
-
-Mark sent in the Send dialog (or `build.py submit`) copies the application's PDFs as they are, plus `tailor.yaml`, `cover-letter.md`, `listing.md`, `listing.yaml`, `job.yaml` and the current `master.yaml`, into `applications/<app>/submitted/` with a `submitted.yaml` (date, file names, whether the PDFs were older than the inputs). From then on `build <app>` refuses (a `--template` trial build to `build/` still works), `build-all` skips it, the app opens it read-only and shows the sent PDFs beside the frozen `tailor.yaml`, letter, listing and `master.yaml` (the live file if an older `submitted/` lacks one), the server refuses edits and drafts, and its bullets no longer block master deletes. Snapshots include the sent PDFs. Unsubmit removes `submitted/` when the folder's PDFs still match it, and otherwise keeps it as `submitted-<date>/`.
-
-The Send dialog (`openSend` in `tracker.js`; the element is in `index.html`, so the editor and the board both have it) opens from the editor's Send button, from dropping a draft on Applied, and from Move to Applied in the history dialog. It saves pending edits first and refuses while an outside edit awaits a choice. It shows each PDF as missing, out of date or current with its page count and fill, offers Rebuild (the finalize route) when one is missing or out of date, warns when the resume is over a page, copies the letter, each role's bullets and the contact details as plain text (falling back to selected text in a readonly box), opens the posting when `job.yaml` has a valid link, and takes the sent date and an optional note. Mark sent needs a resume PDF but allows out-of-date ones, with a warning, and goes through the applied path of `add_event`, so the toast's Undo works. `GET /api/apps/<name>/send-text` supplies the text, built by `studio/send.py` from `build.resume_data` and `build.letter_data` so it matches the PDFs; a tailor that does not build returns `error` instead of roles. The app never sends anything itself.
 
 Never edit, rebuild, or unsubmit a submitted application unless the user asks. Tracking and job details are the exceptions: `tracking.yaml` and `job.yaml` stay editable after submitting (the app shows the live `job.yaml`, not the frozen copy), and restoring a snapshot keeps the current `tracking.yaml` (the snapshot's copy is written only when an application has none).
 
+`.claude/rules/app.md` covers how Mark sent, the Send dialog and Unsubmit work.
+
 ## Application tracking
 
-The home page is a board: Saved (leads not started), Drafting (not submitted), Applied, Screen, Interviewing, Offer, and Rejected, Ghosted and Withdrew trays. Each column lists the most recently updated first. Dragging a card opens a dialog for the date it happened, an optional scheduled date and time, and a note; interviews also take round (numbered automatically), format, length, interviewers and prep notes. The debrief is separate: How it went (`openDebrief` in `tracker.js`) opens from the Needs attention strip or a button on the history row once the start time has passed, and saves the whole event back so the scheduling fields stay. Moving a draft to Applied opens the Send dialog instead. Clicking a card opens its history, where every event can be edited or deleted. A card in Applied, Screen or Interviewing with nothing logged or scheduled for 30 days shows Quiet and offers Ghosted, which counts as a rejection but is left out of time-to-rejection. Saved comes from `saved: true` in the application's `job.yaml`: New application has Save for later, which needs only a studio, a role and optionally a link; a card's Start drafting (or dragging it onto Drafting) clears the flag. Cards show the link and deadline, and the history dialog lists every job detail. Saved leads are not counted in Stats.
-
-Needs attention is a strip at the top of the board, hidden when empty and not narrowed by the search or stage menu. `tracking.summarize` fills `track.attention` with three kinds: `debrief` (an interview whose scheduled start plus length has passed, with no `debrief` or `no_debrief`; an interview with nothing scheduled never asks), `follow_up` (the reminder's date is today or earlier) and `deadline` (an unsent application within `DEADLINE_DAYS`, 7, either side of its `job.yaml` deadline). A closed application asks for nothing. The Quiet flag stays on the card, outside the strip. Set follow-up in the history dialog writes `follow_up` in `tracking.yaml`, only on a sent, open application; Done on the strip clears it (with Undo) and logs no event.
-
-Every scheduled event has a Calendar link in the history (`GET /api/apps/<name>/events/<i>/calendar`), and the board's metric row and Stats' Coming up link to every upcoming one (`GET /api/calendar`). `studio/ics.py` writes the file: floating local times, all-day for a bare date, 60 minutes when no length is set, and interviewers in the description, never as attendees. The app only offers the download and never sends anything.
-
-Timeline and Stats (reply rate, days to reply and to rejection by stage, funnel, applications per week, interviews by format, upcoming) are computed by `studio/tracking.py`.
-
 When the user says they heard back ("Scopely rejected me yesterday"), log it with `python build.py track <app> <stage> --date ...`. Use the day it happened, not today, and never invent events. After a master change, run `check`, then `build-all` (both skip submitted ones) rather than building each folder.
+
+`.claude/rules/tracking.md` covers the board, Needs attention, calendar files, and the `tracking.yaml` and `job.yaml` schemas.
 
 ## Tailoring workflow (when the user pastes a job listing)
 
@@ -96,8 +80,6 @@ Never invent experience, metrics, tools, or titles. If a listing wants something
 - Under 90% full: it suggests up to three unselected bullets from positions and projects already on the page that a test render shows still fit, and never adds them itself. Either side of a `variant_of` pair is never suggested.
 
 The report lists what was shortened and cut, and any requirement that lost its coverage. Because a cut may remove something the letter mentions, it says to check the letter.
-
-**Changes since the last version.** Each real build keeps a copy of `tailor.yaml` and the letter in `<app>.versions.json` beside the fit record, holding the latest two that differ, and a redraft keeps the version it replaces. The Resume tab shows what differs (`studio/changes.py`) from the latest copy, or from the one before it when the files match the latest, so a rewrite from a chat still shows after it is built. An application with no earlier copy shows nothing.
 
 ## master.yaml schema
 
@@ -164,45 +146,6 @@ Renaming the studio through the app (saved when you leave the field) renames the
 
 An unknown id or `paper` value, or a bullet selected with its `variant_of` partner, is a build error; the Resume tab shows an unknown bullet, position, project or game as a "Not in the master" row with Remove. A redraft keeps the application's `paper`. An override or `short` id that matches no selected bullet, or a top-level key the build does not use, is a warning.
 
-## tracking.yaml schema
-
-In each application folder. The Applied date is `submitted/submitted.yaml`'s date, never stored here. Events are kept in the order logged; the board orders them by date. `follow_up` is an optional reminder, not an event; only an application that was sent and is still open uses it, and a plain date works when editing by hand. It lives here, not in `job.yaml`, because restoring a snapshot keeps the current `tracking.yaml`.
-
-```yaml
-follow_up:
-  date: 2026-11-12                 # shows under Needs attention from this day on
-  note: Email the recruiter        # optional
-events:
-  - date: 2026-11-03               # the day it happened
-    stage: interview               # screen, interview, offer, rejected, ghosted, withdrew, note (applied only to move back)
-    scheduled: 2026-11-06 14:00    # optional: YYYY-MM-DD or YYYY-MM-DD HH:MM
-    round: 2                       # interview only, from here down
-    format: video                  # phone, video, onsite, take-home
-    length: 60                     # minutes
-    interviewers: [{name: Sam Lee, role: Lead Designer}]
-    prep: what to review
-    debrief: how it went
-    no_debrief: true               # nothing to write, so the board stops asking; a debrief replaces it
-    note: anything else            # any stage
-```
-
-## job.yaml schema
-
-In each application folder, edited on the Listing tab (it stays open on submitted applications). Every field is optional and empty ones are dropped; the file is deleted when nothing is left. `studio/job.py` checks it. The `url` must be http or https, and the app only shows it as a link then. The `deadline` is `YYYY-MM-DD`.
-
-```yaml
-saved: true                        # a lead you have not started drafting (Saved column); removed by Start drafting
-url: https://example.com/jobs/123
-location: Remote (US)
-salary: 120k to 140k
-source: Studio careers page
-referral: Sam Lee
-deadline: 2026-11-20
-contact: Pat Kim, recruiter, pat@example.com
-```
-
-A redraft never touches `job.yaml`, and `Workspace.outside_edits` guards it like the other autosaved files. `GET /api/apps` and `GET /api/apps/<name>` carry it as `job`; `PUT /api/apps/<name>/job` saves it.
-
 ## listing.yaml schema
 
 Written by a Claude draft and editable on the Listing tab. The build ignores it; the app uses it for the requirement chips (covered or not by the selected bullets) and to rank unselected bullets.
@@ -236,16 +179,6 @@ Optional, in `data/` (gitignored), edited on the Listing tab. Your notes about a
 
 CI (`.github/workflows/ci.yml`) runs ruff and `node --check`, the privacy check (`scripts/check_privacy.py`), `pytest -m "not typst"`, and on Windows the demo build, `check --example` and `pytest -m typst` (ATS text extraction). Before opening a PR, run `ruff check .`, `python scripts/check_privacy.py` (after staging, since it reads tracked files) and `python -m pytest`, with `pip install -r requirements-dev.txt` first. Add or update a test with every behavior change. After changing a template or the demo data, rebuild the demo with `python build.py --example build-all` and commit the PDFs; a test fails when they are stale. Tests use only the demo: the `home` fixture copies `examples/` into a temporary data home.
 
-## Files
-
-- `build.py`: merge, lint, compile, page fill, the impact check, and the data home (`find_home`). Each template ends with a `<layout>` metadata label (page count, where the content ends, the usable area), and `timeline.typ` adds a `<bullet-fit>` label per bullet (lines, last-line fill) and a `<wrap>` label for a role line or headline that wraps; `build.py` queries all metadata. Each real build records its fill in `build/fit/<app>.json` under the data home, which `check` compares against, and a hash of the resolved resume and letter data (`pdf_hashes`). The app marks PDFs out of date when those hashes differ from what the current files would produce, so a master edit that does not reach an application's pages leaves it current. PDFs with no recorded hash compare file times. A change to a template's own code does not count as out of date. Errors raise `BuildError`; `collect_warnings()` gathers warnings for the app.
-- `studio/`: the editor app. `server.py` (standard library HTTP server, JSON API, 127.0.0.1 only), `draft.py` (headless Claude Code drafts), `fit.py` (fitting a resume to the page), `changes.py` (the differences between two versions), `send.py` (plain text for application forms), `ics.py` (calendar files), `workspace.py` (application folders, round-trip YAML merge, master history, snapshots, gap summary, studio notes, tracking events), `tracking.py` (event checks, board column, quiet and ghosted rules, what needs attention, stats), `static/` (one HTML page, plain JS and CSS, no build step; `tracker.js` is the home page board, history, Timeline and Stats).
-- `templates/timeline.typ` (shared), `resume-games.typ`, `resume-inline.typ`: resumes grouped by company, so several roles at one company sit under one heading, each with its own dates (no company-wide span). `resume-inline` (the default) puts each game on its role line, skipping it on a role that shares the game of the role above, and repeating the company on every role after the first so a parser never reads a team name as the employer; `resume-games` adds a Games section with one undated line per game. Pick one with `template:` in `tailor.yaml`, in the app, or try one with `python build.py build <app> --template resume-games` (that trial PDF goes to `build/<app>/`, not the application folder). No template has a summary; an optional one-line headline sits under the name.
-- `templates/cover-letter.typ`: imports its colors, margins and header (name, headline, contact line) from `timeline.typ`, so the letter matches `resume-games` and `resume-inline`.
-- `docs/`: the GitHub Pages project page, served from `main` /docs with no build step (`index.html`, `assets/`, `img/`), plus the README screenshots. Screenshots come from the demo (`python build.py --example serve`); never use real data. Phrases meant to be public, like the author credit, go in `scripts/public-terms.txt` so the privacy check's `PRIVATE_TERMS` skip them.
-- `templates/common.typ`: gray header band, fonts and page setup for the older `resume.typ` only. All templates read `sys.inputs.data` (resolved JSON in `build/`) and take the page size from its `paper` field.
-- Keep resumes ATS friendly: single column, real text, no icons, standard section names, no multi-column rows outside the right-aligned dates, and Skills before Projects (a standard heading closes Experience, so parsers do not fold projects into the last job), section-heading letter spacing at 0.08em or less (wider spacing extracts as "E X P E R I E N C E"). Check with `pypdf`'s `extract_text()` after a template change. PDFs carry a title and author, and contact and project URLs are links.
-
 ## Cutting a release
 
 Run `/release`. There is no release workflow and no version file: the tag (`v1.0.0` so far) marks the release, and the notes go on a GitHub release made with `gh release create`. Pages deploys `docs/` from `main` on its own. Skip the wiki pass: this repo has no wiki.
@@ -254,6 +187,6 @@ Run `/release`. There is no release workflow and no version file: the tag (`v1.0
 
 | Deviation | Why |
 | --- | --- |
-| No wiki. This file and the code are the documentation | A personal tool with one user. The schemas above are rules Claude has to follow to write valid YAML, so they stay here, and the file runs past 150 lines for them |
+| No wiki. This file and the code are the documentation | A personal tool with one user. The tailoring workflow and the master, tailor and listing schemas are rules a headless draft has to follow, so they stay here and the file runs past 150 lines for them |
 | `CLAUDE.local.md` (gitignored) carries personal rules | The repo is public and the career data is private |
 | `docs/` holds the GitHub Pages project page | A published page, not documentation |
