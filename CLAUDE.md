@@ -2,6 +2,8 @@
 
 One master file of career data, a tailor file per job, Typst templates, and `build.py`. The goal is a one-page resume and matching cover letter for each application.
 
+Follows the workflow standard in the user CLAUDE.md: squash merges, `/ship` to land a PR, `/release` to cut one, bugs fixed when found. Deviations are listed at the end.
+
 **Privacy.** This is a public repo. `data/`, `applications/`, `Local/`, `build/`, `snapshots/` and all PDFs (outside `examples/`) are gitignored. Never commit personal data. Anything public goes in `examples/` with fictional data.
 
 **Personal rules and notes.** Anything specific to the user's own career, background, or notes lives in the gitignored `CLAUDE.local.md` at the repo root. Read it before tailoring. Never copy its contents, or anything that reveals where private notes are kept, into a committed file, commit message, or PR.
@@ -243,3 +245,15 @@ CI (`.github/workflows/ci.yml`) runs ruff and `node --check`, the privacy check 
 - `docs/`: the GitHub Pages project page, served from `main` /docs with no build step (`index.html`, `assets/`, `img/`), plus the README screenshots. Screenshots come from the demo (`python build.py --example serve`); never use real data. Phrases meant to be public, like the author credit, go in `scripts/public-terms.txt` so the privacy check's `PRIVATE_TERMS` skip them.
 - `templates/common.typ`: gray header band, fonts and page setup for the older `resume.typ` only. All templates read `sys.inputs.data` (resolved JSON in `build/`) and take the page size from its `paper` field.
 - Keep resumes ATS friendly: single column, real text, no icons, standard section names, no multi-column rows outside the right-aligned dates, and Skills before Projects (a standard heading closes Experience, so parsers do not fold projects into the last job), section-heading letter spacing at 0.08em or less (wider spacing extracts as "E X P E R I E N C E"). Check with `pypdf`'s `extract_text()` after a template change. PDFs carry a title and author, and contact and project URLs are links.
+
+## Cutting a release
+
+Run `/release`. There is no release workflow and no version file: the tag (`v1.0.0` so far) marks the release, and the notes go on a GitHub release made with `gh release create`. Pages deploys `docs/` from `main` on its own. Skip the wiki pass: this repo has no wiki.
+
+## Deviations from the standard
+
+| Deviation | Why |
+| --- | --- |
+| No wiki. This file and the code are the documentation | A personal tool with one user. The schemas above are rules Claude has to follow to write valid YAML, so they stay here, and the file runs past 150 lines for them |
+| `CLAUDE.local.md` (gitignored) carries personal rules | The repo is public and the career data is private |
+| `docs/` holds the GitHub Pages project page | A published page, not documentation |
