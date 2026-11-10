@@ -11,6 +11,7 @@
   python build.py unsubmit <app>       undo submit so the application can be edited and rebuilt
   python build.py track <app> [stage]  log a reply, screen, interview, offer or rejection, or show the history
   python build.py new "<studio>" "<role>" [--listing file|-]   start an application folder
+  python build.py new --url <posting link> ["<studio>" "<role>"]   import a Greenhouse, Lever or Ashby posting
   python build.py draft <app>          draft it with headless Claude Code, as the app does
   python build.py fit <app> [--report]   fit the resume to one page, or suggest bullets when it has room
   add --example to use examples/ (the public demo data) instead of your own
@@ -897,9 +898,11 @@ def main():
     x = sub.add_parser("unsubmit", parents=[common], help="make a submitted application editable again")
     x.add_argument("target")
     w = sub.add_parser("new", parents=[common], help="start an application folder")
-    w.add_argument("studio")
-    w.add_argument("role")
+    w.add_argument("studio", nargs="?", help="required unless --url gives it")
+    w.add_argument("role", nargs="?", help="required unless --url gives it")
     w.add_argument("--listing", help="a file with the job listing, or - to read it from stdin")
+    w.add_argument("--url", help="a Greenhouse, Lever or Ashby posting: imports the listing, studio, role, "
+                                 "location and pay, and saves the link in job.yaml")
     t = sub.add_parser("track", parents=[common], help="log what happened after sending, or show an application's history")
     t.add_argument("target")
     t.add_argument("stage", nargs="?", help="applied, screen, interview, offer, rejected, ghosted, withdrew or note")
@@ -948,12 +951,22 @@ def main():
             return
         if args.cmd == "new":
             from studio.workspace import Workspace
-            listing = ""
-            if args.listing == "-":
+            listing, studio, role, details = "", args.studio, args.role, None
+            if args.url and args.listing:
+                raise BuildError("use --url or --listing, not both")
+            if args.url:
+                from studio.importer import import_listing
+                got = import_listing(args.url)
+                print(f"Imported {got['role']} at {got['studio']} from {got['board'].title()}")
+                listing, studio, role = got["listing"], studio or got["studio"], role or got["role"]
+                details = {k: got[k] for k in ("url", "location", "salary") if got[k]}
+            elif args.listing == "-":
                 listing = sys.stdin.read()
             elif args.listing:
                 listing = Path(args.listing).read_text(encoding="utf-8")
-            name = Workspace(example).create_app(args.studio, args.role, listing)
+            if not studio or not role:
+                raise BuildError("give a studio and a role, or --url to import them")
+            name = Workspace(example).create_app(studio, role, listing, details=details)
             _, apps_dir = workspace(example)
             print(f"OK: {rel(apps_dir / name)}" + ("" if listing.strip() else " (paste the listing into listing.md)"))
             print(f"Next: python build.py{' --example' if example else ''} draft {name}")

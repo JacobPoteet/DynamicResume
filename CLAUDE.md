@@ -21,6 +21,7 @@ python build.py build master         # full pool, multi-page, shows bullet id | 
 python build.py build-all            # skips submitted applications
 python build.py check                # rebuild every unsubmitted application into build/check/ and report what changed
 python build.py new "<studio>" "<role>" [--listing file|-]   # start an application folder
+python build.py new --url <link> ["<studio>" "<role>"]     # import a Greenhouse, Lever or Ashby posting instead
 python build.py draft <app>          # headless Claude draft, as the app does, then build
 python build.py fit <app> [--report] # fit the resume to one page, or suggest bullets when it has room; --report writes nothing
 python build.py snapshot [label]     # zip master, applications, templates, Local/ into snapshots/

@@ -23,6 +23,8 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 **Finding and reusing applications.** Board and List have a search box (studio or role) and a stage menu, and List sorts by studio, stage, applied date or last update. New application can start from an existing one: it copies the bullets, wording, headline and template (and the cover letter if you tick it), but never tracking, job details or PDFs. Applying again to the same studio and role makes a numbered folder (`-2`, `-3`).
 
+**Importing a posting.** Paste a Greenhouse, Lever or Ashby link under New application and press Import. The app reads the board's public API and fills in the studio, role and listing, plus location and pay for the job details. It keeps anything you already typed, and saves the text in `listing.md`, so you still have it after the posting comes down. The app contacts the board only when you press Import. For any other site, paste the text.
+
 **Drafting with Claude.** Paste a listing under New application and choose Create and draft with Claude. The app runs Claude Code headlessly in the repo with read-only tools. It reads the master and the listing, picks and orders bullets, writes a headline and a cover letter, breaks the listing into requirements, and lists anything the master cannot back up. Every bullet id it returns is checked against the master before anything is written.
 
 **Requirement coverage.** Each requirement from the listing becomes a chip on the Resume tab, green when a selected bullet backs it up. Unselected bullets are ranked by how well they match the listing, so filling a gap is one click.
@@ -104,6 +106,7 @@ python build.py build master          # the full pool, with ids, priorities and 
 python build.py build-all             # every application except submitted ones
 python build.py check                 # rebuild everything into build/check/ and report page changes
 python build.py new "<studio>" "<role>" [--listing file|-]   # start an application
+python build.py new --url <link> ["<studio>" "<role>"]     # start one from a Greenhouse, Lever or Ashby posting
 python build.py draft <app>           # draft it with Claude Code, then build
 python build.py snapshot [label]      # zip the master, applications and templates into snapshots/
 python build.py submit <app> [--date YYYY-MM-DD]   # freeze the PDFs as sent; builds skip it from then on

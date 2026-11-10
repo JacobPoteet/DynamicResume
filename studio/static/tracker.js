@@ -84,7 +84,11 @@ function newAppForm() {
         <label class="field">Role<input id="na-role" placeholder="Gameplay Designer"></label>
       </div>
       <div id="na-from-box"></div>
-      <label class="field">Link to the posting (optional)<input id="na-url" type="url" placeholder="https://"></label>
+      <div class="row na-import">
+        <label class="field grow">Link to the posting (optional)<input id="na-url" type="url" placeholder="https://"></label>
+        <button type="button" id="na-import" title="Read the studio, role, location, pay and listing from a Greenhouse, Lever or Ashby posting">Import</button>
+      </div>
+      <div id="na-import-note" class="muted" style="font-size:12px" role="status"></div>
       <label class="field">Job listing<textarea id="na-listing" rows="12" placeholder="Paste the full listing"></textarea></label>
       <div class="muted" style="font-size:12px">${S.init.claude
         ? "Drafting runs Claude Code in this repo with read-only access (a minute or two). It picks and orders bullets, writes a cover letter, and lists what the master cannot back up. Without drafting, every priority 1 bullet starts selected."
@@ -179,10 +183,37 @@ function openNewApp() {
       ${T.apps.map((a) => `<option value="${esc(a.name)}">${esc(appLabel(a))}, ${esc(a.role)} (${esc(COL_LABEL[a.track.column])})</option>`).join("")}</select></label>
     <label class="check" id="na-letter-row" hidden><input type="checkbox" id="na-letter"> Also copy its cover letter</label>
     <div class="muted" id="na-from-note" style="font-size:12px" hidden>Copies its bullets, overrides, headline and template into the new application. Tracking, job details and PDFs stay behind, and a submitted application is copied as it was sent.</div>` : "";
+  T.imported = null;
+  $("#na-import-note").textContent = "";
+  $("#na-import").onclick = importListing;
   if ($("#na-from")) $("#na-from").onchange = (e) => {
     $("#na-letter-row").hidden = $("#na-from-note").hidden = !e.target.value;
   };
   $("#new-dlg").showModal();
+}
+
+// Fill the empty fields from a Greenhouse, Lever or Ashby posting. Text already typed stays.
+// The only request the app makes to another site, and only when Import is pressed.
+async function importListing() {
+  const btn = $("#na-import"), note = $("#na-import-note"), url = $("#na-url").value.trim();
+  if (!url) return void (note.textContent = "Paste the posting's link first.");
+  btn.disabled = true;
+  note.textContent = "Reading the posting...";
+  try {
+    const r = await api("POST", "/api/import-listing", { url });
+    const kept = [];
+    for (const [id, key, label] of [["#na-studio", "studio", "studio"], ["#na-role", "role", "role"], ["#na-listing", "listing", "listing"]]) {
+      if ($(id).value.trim()) { if ($(id).value.trim() !== r[key]) kept.push(label); } else $(id).value = r[key];
+    }
+    T.imported = { location: r.location, salary: r.salary };
+    const extra = [r.location, r.salary].filter(Boolean).join(", ");
+    note.textContent = `Imported from ${r.board[0].toUpperCase()}${r.board.slice(1)}${extra ? ` (${extra}, saved to job details)` : ""}.` +
+      (kept.length ? ` Kept the ${kept.join(" and ")} you typed.` : " Check the studio name before creating.");
+  } catch (e) {
+    note.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ----- board -----

@@ -167,7 +167,8 @@ async function deleteApp(a) {
 async function createApp(draft, save = false) {
   const body = { studio: $("#na-studio").value, role: $("#na-role").value, listing: $("#na-listing").value };
   const link = $("#na-url").value.trim();
-  if (link || save) body.job = { ...(link ? { url: link } : {}), ...(save ? { saved: true } : {}) };
+  const got = Object.fromEntries(Object.entries(T.imported || {}).filter(([, v]) => v));
+  if (link || save || Object.keys(got).length) body.job = { ...got, ...(link ? { url: link } : {}), ...(save ? { saved: true } : {}) };
   const from = $("#na-from")?.value;
   if (from) Object.assign(body, { start_from: from, copy_letter: $("#na-letter").checked });
   // A repeat studio and role makes a numbered folder, so a second click would make a second application.
