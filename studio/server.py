@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 import build
 from build import HOME, ROOT, BuildError
 from studio.draft import Drafts, claude_path
+from studio import gaps as gap_tools
 from studio.fit import STOP, fit_app
 from studio.workspace import Workspace
 
@@ -382,7 +383,32 @@ def check(s, body, q):
 
 @route("GET", "/api/gaps")
 def gaps(s, body, q):
-    return {"gaps": s.ws.gap_summary()}
+    return {"gaps": gap_tools.annotate(s.ws, s.ws.gap_summary())}
+
+
+@route("PUT", "/api/gaps/state")
+def gap_state(s, body, q):
+    """Mark a gap group done or not-me, or reopen it (state null)."""
+    with LOCK:
+        return {"state": gap_tools.set_state(s.ws, body.get("key"), body.get("state") or None, note=body.get("note"))}
+
+
+# Write a bullet: each call runs headless Claude (up to a few minutes), so outside LOCK.
+@route("POST", "/api/gaps/questions")
+def gap_questions(s, body, q):
+    return gap_tools.questions(s.ws, body.get("key"))
+
+
+@route("POST", "/api/gaps/propose")
+def gap_propose(s, body, q):
+    return gap_tools.propose(s.ws, body.get("key"), body.get("answers"))
+
+
+@route("POST", "/api/gaps/bullet")
+def gap_bullet(s, body, q):
+    with LOCK:
+        out = gap_tools.add_bullet(s.ws, body.get("key"), body.get("bullet") or {})
+    return {**out, "versions": s.versions()}
 
 
 @route("GET", "/api/snapshots")

@@ -43,7 +43,7 @@ Improving a bullet in the master improves it everywhere, and every application s
 
 **Fit to page.** A headless draft is measured and fitted once it is written, and the Fit to page button does the same at any time. Over a page, it uses shorter texts, then cuts the bullets that fit the listing least, and it tells you what went, with Undo. It never rewords anything or shrinks fonts. With room left, it suggests bullets you could add. The Resume tab also shows what changed since the last version: bullets added, removed, moved or reworded, and changes to the letter, however the change was made.
 
-**Recurring gaps.** Each draft lists what the listing asks for that your master cannot back up, with a short topic. Master, Gaps ranks those topics across every application, so you know which bullets are worth writing next.
+**Recurring gaps.** Each draft lists what the listing asks for that your master cannot back up, with a short topic. Master, Gaps ranks those topics across every application, so you know which bullets are worth writing next. Mark a topic Done or Not me to move it under Closed; it comes back if a later draft raises it again. Write a bullet has Claude ask what you did, then write a bullet from your answers alone. You edit it and choose where it goes before Add to master saves it and closes the gap.
 
 **Studio notes.** Notes about a studio (games of theirs you've played, people you know there) live in `data/studios.yaml`, are edited on the Listing tab, and go into the draft for the cover letter. Renaming a studio in the editor brings its notes and PDFs along.
 

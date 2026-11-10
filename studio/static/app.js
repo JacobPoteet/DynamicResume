@@ -1744,19 +1744,154 @@ function baseBullets() {
 }
 const bulletDirty = (b, base = baseBullets()) => base[b.id] !== JSON.stringify(b);
 
-// Gaps from every application's listing, grouped by topic, most common first.
+// Gaps from every application's listing, grouped by topic, most common first. Open ones lead;
+// ones marked done or not me sit under Closed, and come back up if a later draft raises them again.
 async function renderGaps() {
   const body = $("#mbody");
   body.innerHTML = `<p class="muted">Loading…</p>`;
   const { gaps } = await api("GET", "/api/gaps");
   if (M.mode !== "gaps" || $("#mbody") !== body) return;
+  M.gaps = gaps;
+  const open = gaps.filter((g) => !g.state || g.raised_again), closed = gaps.filter((g) => g.state && !g.raised_again);
   body.innerHTML = `<p class="muted" style="margin:0;font-size:13px">What listings asked for that the master could not back up, from every application's listing.yaml,
-      most common first. If you have done one of these, add a bullet for it on the Edit tab.</p>
-    ${gaps.length ? gaps.map((g) => `<section class="card"><div class="hd"><strong class="grow">${esc(g.topic || g.items[0].text)}</strong>
-        <span class="pill ${g.apps.length > 1 ? "warn" : "plain"}">${plural(g.apps.length, "application")}</span></div>
-      <ul class="bd gap-items">${g.items.map((i) => `<li><a href="#/app/${enc(i.app)}/listing">${esc(i.studio)}</a>: ${esc(i.text)}</li>`).join("")}</ul></section>`).join("")
-      : `<div class="empty">No gaps recorded yet. Drafting with Claude lists them on each application's Listing tab.</div>`}`;
+      most common first. Write a bullet when you have done it, or mark it Not me.</p>
+    ${open.length ? open.map(gapCard).join("")
+      : `<div class="empty">${gaps.length ? "Every gap is closed." : "No gaps recorded yet. Drafting with Claude lists them on each application's Listing tab."}</div>`}
+    ${closed.length ? `<details class="gap-closed"><summary>Closed (${closed.length})</summary><div class="stack">${closed.map(gapCard).join("")}</div></details>` : ""}`;
+  body.querySelectorAll("[data-gap]").forEach((b) => (b.onclick = () => gapAction(b.dataset.gap, b.dataset.key)));
   updateSavebar();
+}
+
+const GAP_STATE = { done: "Done", "not-me": "Not me" };
+
+function gapCard(g) {
+  const k = esc(g.key), st = g.state;
+  const status = st ? `<span class="pill ${st.state === "done" ? "good" : "plain"}" title="Closed ${esc(st.date)}">${GAP_STATE[st.state]}${st.bullet ? `: ${esc(st.bullet)}` : ""}</span>` : "";
+  const again = g.raised_again ? `<span class="pill warn" title="A listing drafted after you closed it asks for this again">Raised again</span>` : "";
+  const acts = st && !g.raised_again
+    ? `<button class="small ghost" data-gap="reopen" data-key="${k}">Reopen</button>`
+    : `${S.init.claude ? `<button class="small" data-gap="write" data-key="${k}" title="Claude asks what you did, then writes a bullet from your answers for you to review">Write a bullet</button>` : ""}
+       <button class="small ghost" data-gap="done" data-key="${k}" title="The master covers this now">Done</button>
+       <button class="small ghost" data-gap="not-me" data-key="${k}" title="You have not done this; stop listing it as open">Not me</button>`;
+  return `<section class="card"><div class="hd row wrap"><strong class="grow">${esc(g.topic || g.items[0].text)}</strong>
+      ${again}${status}<span class="pill ${g.apps.length > 1 ? "warn" : "plain"}">${plural(g.apps.length, "application")}</span>${acts}</div>
+    <ul class="bd gap-items">${g.items.map((i) => `<li><a href="#/app/${enc(i.app)}/listing">${esc(i.studio)}</a>: ${esc(i.text)}</li>`).join("")}</ul></section>`;
+}
+
+async function gapAction(act, key) {
+  if (act === "write") return openWriteBullet(M.gaps.find((g) => g.key === key));
+  const before = M.gaps.find((g) => g.key === key)?.state;
+  try {
+    await api("PUT", "/api/gaps/state", { key, state: act === "reopen" ? null : act });
+    await renderGaps();
+    const undo = act !== "reopen" ? ` <button class="small" id="gap-undo">Undo</button>` : "";
+    toast(act === "reopen" ? "Reopened." : `Marked ${GAP_STATE[act].toLowerCase()}.${undo}`);
+    if ($("#gap-undo")) $("#gap-undo").onclick = async () => {
+      await api("PUT", "/api/gaps/state", { key, state: before?.state || null, note: before?.note });
+      renderGaps();
+    };
+  } catch (e) {
+    toast(esc(e.message), true);
+  }
+}
+
+// Write a bullet: Claude asks what you did, you answer, Claude writes a bullet from the answers
+// only, and you edit it before Add to master. Nothing reaches the master before that.
+function openWriteBullet(g) {
+  const dlg = $("#gap-dlg"), W = { g, questions: [], closed: false };
+  const title = esc(g.topic || g.items[0].text);
+  const wire = () => dlg.querySelectorAll("[data-w=close]").forEach((b) => (b.onclick = () => dlg.close()));
+  const shell = (inner) => {
+    dlg.innerHTML = `<div class="dlg-hd"><h2 id="gap-h">Write a bullet: ${title}</h2></div><div class="stack">${inner}</div>`;
+    wire();
+  };
+  const waiting = (what) => shell(`<div class="row"><span class="spinner" style="width:10px;height:10px"></span><span>${what}</span></div>
+    <span class="muted" style="font-size:12px">Claude reads the master with read-only tools. This usually takes under a minute.</span>
+    <div class="row dlg-ft"><span class="grow"></span><button type="button" data-w="close">Cancel</button></div>`);
+  const fail = (e, retry) => {
+    shell(`<span class="pill bad">${esc(e.message)}</span><div class="row dlg-ft"><span class="grow"></span>
+      <button type="button" data-w="close">Close</button><button type="button" class="primary" data-w="retry">Try again</button></div>`);
+    dlg.querySelector("[data-w=retry]").onclick = retry;
+  };
+  const err = (msg) => ($("#w-err").innerHTML = `<span class="pill bad">${esc(msg)}</span>`);
+  dlg.onclose = () => (W.closed = true);
+
+  async function ask() {
+    waiting("Claude is working out what to ask…");
+    try {
+      W.questions = (await api("POST", "/api/gaps/questions", { key: g.key })).questions;
+      if (!W.closed) answer();
+    } catch (e) {
+      if (!W.closed) fail(e, ask);
+    }
+  }
+
+  function answer(prev = []) {
+    shell(`<p class="muted" style="margin:0;font-size:13px">Answer in your own words. Leave out anything you did not do; Claude uses only what you write here.</p>
+      ${W.questions.map((q, i) => `<label class="field">${esc(q)}<textarea rows="3" data-a="${i}">${esc(prev[i] || "")}</textarea></label>`).join("")}
+      <div id="w-err"></div>
+      <div class="row dlg-ft"><span class="grow"></span><button type="button" data-w="close">Cancel</button>
+        <button type="button" class="primary" data-w="propose">Write the bullet</button></div>`);
+    dlg.querySelector("[data-w=propose]").onclick = propose;
+  }
+
+  async function propose() {
+    const answers = W.questions.map((q, i) => ({ q, a: dlg.querySelector(`[data-a="${i}"]`)?.value ?? W.answers?.[i]?.a ?? "" }));
+    if (!answers.some((x) => x.a.trim())) return void err("Answer at least one question first.");
+    W.answers = answers;
+    waiting("Claude is writing the bullet from your answers…");
+    try {
+      const r = await api("POST", "/api/gaps/propose", { key: g.key, answers });
+      if (!W.closed) review(r);
+    } catch (e) {
+      if (!W.closed) fail(e, propose);
+    }
+  }
+
+  function review(r) {
+    const back = `<button type="button" data-w="back">Back to answers</button>`;
+    if (r.none) {
+      shell(`<p>${esc(r.none)}</p><div class="row dlg-ft"><span class="grow"></span>${back}
+        <button type="button" data-w="close">Close</button><button type="button" class="primary" data-w="notme">Mark Not me</button></div>`);
+      dlg.querySelector("[data-w=notme]").onclick = () => { dlg.close(); gapAction("not-me", g.key); };
+    } else {
+      shell(`<label class="field">Bullet<textarea id="w-text" rows="3">${esc(r.text)}</textarea></label>
+        <label class="field">Short version (optional)<input id="w-short" value="${esc(r.short)}"></label>
+        <div class="row wrap">
+          <label class="field grow">Goes under<select id="w-owner"><option value="">Choose…</option>
+            ${r.owners.map((o) => `<option value="${esc(o.id)}" ${o.id === r.owner ? "selected" : ""}>${esc(o.label)}${o.kind === "project" ? " (project)" : ""}</option>`).join("")}</select></label>
+          <label class="field">Priority<select id="w-pri">${[1, 2, 3].map((p) => `<option ${p === r.priority ? "selected" : ""}>${p}</option>`).join("")}</select></label>
+        </div>
+        <label class="field">Tags (comma separated)<input id="w-tags" value="${esc(r.tags.join(", "))}"></label>
+        ${r.unsupported ? `<div class="muted" style="font-size:12px"><strong>Still not shown by your answers:</strong> ${esc(r.unsupported)}</div>` : ""}
+        ${(r.warnings || []).map((w) => `<span class="pill warn">${esc(w)}</span>`).join(" ")}
+        <div id="w-err"></div>
+        <div class="row dlg-ft"><span class="grow"></span>${back}<button type="button" data-w="close">Cancel</button>
+          <button type="button" class="primary" data-w="add">Add to master</button></div>`);
+      dlg.querySelector("[data-w=add]").onclick = add;
+    }
+    dlg.querySelector("[data-w=back]").onclick = () => answer(W.answers.map((x) => x.a));
+  }
+
+  async function add() {
+    const bullet = { text: $("#w-text").value, short: $("#w-short").value, owner: $("#w-owner").value,
+      priority: Number($("#w-pri").value), tags: $("#w-tags").value.split(",").map((t) => t.trim()).filter(Boolean) };
+    if (!bullet.text.trim()) return void err("The bullet has no text.");
+    if (!bullet.owner) return void err("Choose where it goes.");
+    try {
+      const r = await api("POST", "/api/gaps/bullet", { key: g.key, bullet });
+      if (r.versions) S.versions = { ...S.versions, ...r.versions };
+      dlg.close();
+      await loadMaster();
+      renderMasterBody();  // the bullet count too, not only the gaps
+      toast(`Added ${esc(r.id)} to the master and marked the gap done. Find it on the Edit tab.`, false, 7000);
+    } catch (e) {
+      err(e.message);
+    }
+  }
+
+  dlg.showModal();
+  ask();
 }
 
 const fitLabel = (f) => !f ? "no earlier build" : f.pages == null ? "unknown"

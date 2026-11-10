@@ -866,7 +866,7 @@ class Workspace:
                 grp = groups.setdefault(key, {"topic": str(topic or ""), "apps": [], "items": []})
                 if app.name not in grp["apps"]:
                     grp["apps"].append(app.name)
-                grp["items"].append({"app": app.name, "studio": studio, "text": text})
+                grp["items"].append({"app": app.name, "studio": studio, "text": text, "drafted": str(spec.get("drafted") or "")})
         return sorted(groups.values(), key=lambda g: (-len(g["apps"]), g["topic"] or g["items"][0]["text"]))
 
     def gap_topics(self):
