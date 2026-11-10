@@ -165,7 +165,7 @@ notes: what the draft led with and why
 drafted: YYYY-MM-DD HH:MM
 ```
 
-A requirement with `bullets` counts as covered when one of them is selected; one without falls back to shared tags. Master, Gaps groups every application's gaps by topic and ranks them by how many applications raised them.
+A requirement with `bullets` counts as covered when one of them is selected; one without falls back to shared tags. Master, Gaps groups every application's gaps by topic and ranks them by how many applications raised them. What the user decided about each topic (`done` or `not-me`, the date, and the bullet that closed it) lives in `data/gaps.yaml`, which `studio/gaps.py` reads and writes.
 
 ## studios.yaml
 
