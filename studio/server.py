@@ -147,6 +147,13 @@ def create_app(s, body, q):
                                     body.get("start_from") or None, bool(body.get("copy_letter")), body.get("job"))
 
 
+@route("POST", "/api/import-listing")
+def import_listing(s, body, q):
+    # Network, so outside LOCK. The only request the app makes to another site, and only on Import.
+    from studio.importer import import_listing as fetch
+    return fetch(body.get("url"))
+
+
 @route("GET", "/api/apps/([^/]+)")
 def get_app(s, body, q, name):
     with LOCK:

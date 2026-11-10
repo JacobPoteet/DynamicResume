@@ -243,6 +243,7 @@ button[aria-pressed=true] { background: var(--accent-soft); border-color: var(--
 .ev-err { color: var(--bad); font-size: 13px; }
 .ev-err:empty { display: none; }
 .row.wrap { flex-wrap: wrap; }
+.na-import { align-items: end; }
 .send-dlg { width: min(620px, calc(100vw - 32px)); }
 .send-dlg [hidden] { display: none; }
 .send-dlg h3 { font-size: 13px; margin: 0; }
