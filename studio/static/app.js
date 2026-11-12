@@ -2177,7 +2177,7 @@ const OWNER_FIELDS = {
   projects: ["name", "url", "summary"],
 };
 const ownerHead = (kind, o) => (kind === "positions" ? `${o.company || "New position"}, ${[o.title, o.team].filter(Boolean).join(", ")}` : o.name || "New project");
-const ownerSub = (kind, o) => (kind === "positions" ? `${o.start || "?"} to ${o.end || "?"}${o.product ? `, ${o.product}` : ""}` : o.url || "");
+const ownerSub = (kind, o) => (kind === "positions" ? `${o.start || "?"} to ${o.end || "?"}${o.product ? `, ${o.product}` : ""}` : o.summary || o.url || "");
 
 function ownerCard(kind, o, oi, base) {
   const key = ownerKey(kind, o);
