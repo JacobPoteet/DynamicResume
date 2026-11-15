@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DynamicResume</title>
-<meta name="description" content="Keep your whole career in one YAML file and build a tailored one-page resume and cover letter for every job, with a local editor, Claude drafts, Typst layout and application tracking.">
+<meta name="description" content="Keep your whole career in one YAML file and build a tailored one-page resume and cover letter for every job, with a local editor, Claude drafts, Typst layout, application tracking and interview prep.">
 <meta name="theme-color" content="#15191b">
 <meta property="og:title" content="DynamicResume">
 <meta property="og:description" content="One master file of career data. A tailored, ATS-friendly one-page resume and cover letter for every job.">
@@ -42,7 +42,7 @@
 <section class="hero" id="top">
   <div class="wrap">
     <div class="hero-copy">
-      <a class="release" href="https://github.com/JacobPoteet/DynamicResume/releases/latest">v1.1.0 adds application tracking</a>
+      <a class="release" href="https://github.com/JacobPoteet/DynamicResume/releases/latest">v1.1.0: fit to page, a send flow and interview prep</a>
       <h1>Write your career once.<br>Fit it to every job on one page.</h1>
       <p class="lede">DynamicResume keeps every role, bullet and skill in one master file. For each listing it picks the bullets that match, lays them out with Typst, and tells you exactly how full the page is. It runs on your machine, and your data never leaves it.</p>
       <div class="ctas">
@@ -87,8 +87,8 @@
     <article class="feat">
       <div class="feat-copy">
         <h3>Claude drafts it. You decide.</h3>
-        <p>Paste a job listing and choose Create and draft with Claude. Claude Code runs headlessly with read-only tools, reads your master and the listing, then picks and orders bullets, writes a headline and a cover letter, and breaks the listing into requirements.</p>
-        <p>It also says what your master can't back up. Those gaps get a topic, and the Gaps view ranks them across every application, so you know which bullet to write next.</p>
+        <p>Paste a job listing, or import one from a Greenhouse, Lever or Ashby link, and choose Create and draft with Claude. Claude Code runs headlessly with read-only tools, reads your master and the listing, then picks and orders bullets, writes a headline and a cover letter, and breaks the listing into requirements.</p>
+        <p>It also says what your master can't back up, and the Gaps view ranks those gaps across every application. Write a bullet asks what you actually did and drafts one from your answers alone, so a gap closes without anything invented.</p>
       </div>
       <figure class="shot"><img src="img/listing.webp" width="2880" height="1800" loading="lazy" alt="The Listing tab: Claude's notes on what it led with, two gaps the master cannot back up, studio notes, and the editable requirement list, beside a live resume preview."></figure>
     </article>
@@ -97,29 +97,29 @@
       <div class="feat-copy">
         <h3>Edit against the listing, with a live page</h3>
         <p>Every requirement is a chip that turns green when a selected bullet backs it up. Tick bullets on and off, drag them into order, or reword one for this job only. The preview rebuilds as you go.</p>
-        <p>The fill meter shows how much room is left. Each bullet shows its line count, and a bullet whose last line holds only a word or two gets flagged, because trimming it saves a whole line. Nothing ever shrinks the font.</p>
+        <p>The fill meter shows how much room is left, and a bullet whose last line holds a word or two gets flagged. Over a page? Fit to page swaps in short wordings, then cuts the bullets the listing needs least, and gives back whatever it didn't need. Nothing ever shrinks the font.</p>
       </div>
-      <figure class="shot"><img src="img/resume.webp" width="2880" height="1800" loading="lazy" alt="The Resume tab: nine of ten listing requirements covered, bullets with ids, priorities, tags and line counts, and a live one-page preview that is 76 percent full."></figure>
+      <figure class="shot"><img src="img/resume.webp" width="2880" height="1800" loading="lazy" alt="The Resume tab: nine of ten listing requirements covered, bullets with tags and line counts, a Fit to page button, and a live one-page preview that is 76 percent full."></figure>
     </article>
 
     <article class="feat">
       <div class="feat-copy">
-        <h3>Track it after you hit send</h3>
-        <p>Marking an application sent freezes the exact PDFs you sent, along with the files that made them, so when a studio calls back you can open the resume they actually have.</p>
-        <p>Then drag the card along the board as you hear back: screen, interview rounds with format and interviewers, offer, rejected or ghosted. Timeline and Stats show reply rates, days to a first reply, and what's coming up.</p>
+        <h3>Send it, then see it through</h3>
+        <p>The Send dialog copies your letter and each role's bullets as plain text for application forms, then freezes the exact PDFs you sent, so when a studio calls back you can open the resume they actually have.</p>
+        <p>Drag the card along the board as you hear back. Needs attention lists follow-ups that are due and interviews waiting on a debrief. Before an interview, a prep sheet lists likely questions with the bullets that answer them, what to say about the gaps, and a thank-you email to copy.</p>
       </div>
       <div class="shot-stack">
-        <figure class="shot"><img src="img/board.webp" width="2880" height="960" loading="lazy" alt="The application board with Drafting, Applied, Screen, Interviewing and Offer columns, a quiet card offering Ghosted, and a scheduled second-round interview."></figure>
-        <figure class="shot"><img src="img/timeline.webp" width="2880" height="744" loading="lazy" alt="The timeline: three applications drawn across September to November, with stage changes, scheduled interviews and a rejection."></figure>
+        <figure class="shot"><img src="img/board.webp" width="2880" height="1040" loading="lazy" alt="The application board: a Needs attention strip with a due follow-up, a missing debrief and a deadline, reply stats, and cards in Drafting, Applied and Interviewing."></figure>
+        <figure class="shot shot-inset"><img src="img/prep.webp" width="1360" height="870" loading="lazy" alt="A prep sheet for a second-round interview: likely questions, each with talking points and the ids of the bullets that answer it."></figure>
       </div>
     </article>
 
     <dl class="more">
       <div><dt>Impact check</dt><dd>Every master save rebuilds each application in the background and tells you which ones changed length or went past one page.</dd></div>
-      <div><dt>Short versions and variants</dt><dd>A bullet can carry a tighter wording, or an alternate version for listings that ask for something specific. The build refuses a bullet and its variant together.</dd></div>
+      <div><dt>The whole master in a form</dt><dd>Edit every role, bullet, short wording and variant without touching YAML, with an outline, search, tag filters and em dash warnings as you type.</dd></div>
       <div><dt>ATS-friendly output</dt><dd>One column of real text and standard headings, with the company repeated on every role so autofill never reads a team name as your employer.</dd></div>
-      <div><dt>Matching cover letters</dt><dd>Plain paragraphs, laid out with the resume's header, colors and margins, and drawing on your notes about the studio.</dd></div>
-      <div><dt>Writing lint</dt><dd>Builds flag em dashes and filler such as "leverage", "spearhead" and "passionate about".</dd></div>
+      <div><dt>Matching cover letters</dt><dd>Laid out with the resume's header and margins, drawing on your studio notes, and linted for filler such as "leverage" and "spearhead".</dd></div>
+      <div><dt>Follow-ups and calendars</dt><dd>Set a reminder on any open application, and download any scheduled interview as a calendar file. Timeline and Stats show reply rates and days to a first reply.</dd></div>
       <div><dt>Nothing gets lost</dt><dd>Comments in your YAML survive every save, each master save keeps the previous version, and snapshots zip everything before a redraft or delete.</dd></div>
     </dl>
   </div>
@@ -129,7 +129,7 @@
 <section class="hood" id="hood">
   <div class="wrap">
     <h2 class="sec">Under the hood</h2>
-    <p class="sec-lede">About 6,000 lines of Python, Typst and plain JavaScript. No framework, no bundler, no database: YAML files you can read and edit, a standard-library server, and a template that measures its own layout.</p>
+    <p class="sec-lede">About 9,000 lines of Python, Typst and plain JavaScript. No framework, no bundler, no database: YAML files you can read and edit, a standard-library server, and a template that measures its own layout.</p>
 
     <figure class="pipe" aria-labelledby="pipe-cap">
       <svg viewBox="0 0 960 300" role="img" aria-labelledby="pipe-title pipe-desc">
@@ -159,7 +159,7 @@
     <div class="notes">
       <article class="note">
         <h3>A template that measures itself</h3>
-        <p>Typst lays out the page, and while it does, each bullet records how many lines it took and how full its last line is. <code>build.py</code> queries those labels instead of guessing from character counts, so "about 16 lines free" means 16 lines.</p>
+        <p>Typst lays out the page, and while it does, each bullet records how many lines it took and how full its last line is. <code>build.py</code> queries those labels instead of guessing from character counts, so "about 16 lines free" means 16 lines, and Fit to page can test each cut with a real render.</p>
 <pre><code><span class="c">// templates/timeline.typ</span>
 <span class="k">let</span> n = lines(b.text)
 ...
@@ -169,7 +169,7 @@
 
       <article class="note">
         <h3>An agent with read-only hands</h3>
-        <p>Drafts run Claude Code headlessly in the data folder, so the project's own rules apply. It can read, glob and grep, and nothing else. It answers with one JSON object, and every bullet id in it is checked against the master before a file is written.</p>
+        <p>Drafts, gap bullets and prep sheets all run Claude Code headlessly in the data folder, so the project's own rules apply. It can read, glob and grep, and nothing else. It answers with one JSON object, and every bullet id in it is checked against the master before a file is written.</p>
 <pre><code><span class="c"># studio/draft.py</span>
 READ_ONLY = [<span class="s">"Read"</span>, <span class="s">"Glob"</span>, <span class="s">"Grep"</span>]
 cmd = [exe, <span class="s">"-p"</span>, <span class="s">"--output-format"</span>, <span class="s">"stream-json"</span>,

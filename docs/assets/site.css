@@ -182,6 +182,7 @@ h1 {
 .feat p { color: var(--muted); margin: 0 0 14px; }
 .shot { margin: 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--line-strong); box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.7); }
 .shot-stack { display: grid; gap: 16px; }
+.shot-inset { width: 72%; justify-self: end; margin-top: -72px; box-shadow: 0 18px 40px rgb(0 0 0 / 0.45); }
 
 .more { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 40px; margin: 0; }
 .more div { border-top: 1px solid var(--line); padding: 20px 0 28px; }
@@ -271,6 +272,7 @@ pre .o { color: var(--muted); }
   .tailor { margin-top: 44px; padding: 14px; border-radius: 12px; }
   .listings button { padding: 9px 11px; font-size: 14px; }
   .more { grid-template-columns: 1fr; }
+  .shot-inset { width: 100%; margin-top: 0; }
   .tour, .hood, .start { padding: 64px 0; }
   .tour .sec { margin-bottom: 36px; }
   .copy { display: none; }
