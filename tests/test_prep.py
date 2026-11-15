@@ -98,7 +98,8 @@ def test_as_text_reads_like_a_sheet(ws, replies):
     assert "bullets: dd-bosses" in out and "Thank-you email: Thank you" in out
 
 
-def test_routes(ws, replies):
+def test_routes(ws, replies, monkeypatch):
+    monkeypatch.setattr(build, "find_typst", lambda: "typst")  # CI's unit-test job has no typst
     s = server.Studio(False)
     assert server.get_prep(s, {}, {}, HARBOR) == {"prep": None}
     replies[0].append(REPLY)
