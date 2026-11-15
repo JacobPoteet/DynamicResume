@@ -112,6 +112,7 @@ python build.py snapshot [label]      # zip the master, applications and templat
 python build.py submit <app> [--date YYYY-MM-DD]   # freeze the PDFs as sent; builds skip it from then on
 python build.py unsubmit <app>        # make a submitted application editable again
 python build.py track <app> [stage] [--date --note --scheduled --format --length --with "Name, Role"]   # log or show its history
+python build.py prep <app> [--round N] [--show]   # an interview prep sheet and thank-you email from Claude Code
 ```
 
 Add `--example` to any command to use `examples/` instead of your own data. `build <app> --template <name>` tries another template without changing the application (the trial PDF goes to `build/<app>/`).
