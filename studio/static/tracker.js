@@ -537,7 +537,7 @@ function openEvent(a, opts = {}) {
     return out;
   };
   const remove = async () => {
-    if (!confirm(`Delete the ${EV_LABEL[ev.stage].toLowerCase()} on ${fmtDay(ev.date)}?`)) return;
+    if (!await confirmDlg({ title: `Delete the ${EV_LABEL[ev.stage].toLowerCase()} on ${fmtDay(ev.date)}?`, ok: "Delete", danger: true })) return;
     try {
       await api("DELETE", `/api/apps/${enc(a.name)}/events/${opts.index}`);
       dlg.close();

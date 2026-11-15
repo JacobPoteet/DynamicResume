@@ -3,6 +3,22 @@
 // tailor is saved to tailor.yaml (debounced) and the server answers with a fresh preview.
 
 const $ = (sel, el = document) => el.querySelector(sel);
+// The app's own yes/no dialog, used in place of the browser's confirm(). Resolves true on OK.
+// Cancel has focus, so Enter or Esc never confirms by accident.
+function confirmDlg({ title, body = "", ok = "OK", danger = false }) {
+  const dlg = $("#confirm-dlg");
+  dlg.innerHTML = `<form method="dialog">
+    <div class="dlg-hd"><h2 id="confirm-h">${esc(title)}</h2></div>
+    ${body ? `<p class="confirm-body">${esc(body)}</p>` : ""}
+    <div class="row dlg-ft"><span class="grow"></span><button value="cancel">Cancel</button>
+      <button value="ok" class="${danger ? "danger-fill" : "primary"}">${esc(ok)}</button></div></form>`;
+  dlg.returnValue = "";
+  return new Promise((resolve) => {
+    dlg.onclose = () => resolve(dlg.returnValue === "ok");
+    dlg.showModal();
+    $("[value=cancel]", dlg).focus();
+  });
+}
 const enc = encodeURIComponent;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -74,21 +90,25 @@ const ON_OUTSIDE_EDIT = { blocked: () => false };
 // ---------- routing ----------
 
 let lastHash = location.hash;
-function route() {
+// Ask before leaving with unsaved work. The address goes back while the dialog is open, and
+// forward again only on Discard.
+async function leaveAnyway(opts) {
+  const target = location.hash;
+  history.replaceState(null, "", lastHash);
+  if (!await confirmDlg(opts)) return false;
+  history.replaceState(null, "", target);
+  return true;
+}
+
+async function route() {
   if (S.init.needs_master) return showFirstRun();
   const [a, b, c] = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (a !== "master" && lastHash.startsWith("#/master") && masterDirty()) {
-    if (!confirm("You have unsaved master changes. Leave and discard them?")) {
-      history.replaceState(null, "", lastHash);
-      return;
-    }
+    if (!await leaveAnyway({ title: "Leave the master?", body: "You have unsaved master changes. Leaving discards them.", ok: "Discard and leave", danger: true })) return;
     M.draft = null;
   }
   if (S.conflict && !(a === "app" && b === S.app?.name)) {
-    if (!confirm("Your latest edit is not saved because the file changed on disk. Leave and discard the edit?")) {
-      history.replaceState(null, "", lastHash);
-      return;
-    }
+    if (!await leaveAnyway({ title: "Leave this application?", body: "Your latest edit is not saved because the file changed on disk. Leaving discards the edit.", ok: "Discard and leave", danger: true })) return;
     dropUnsaved();
     S.conflict = null;
   }
@@ -154,7 +174,7 @@ function pdfPill(pdfs) {
 async function deleteApp(a) {
   const label = [a.studio, a.role].filter(Boolean).join(", ") || a.name;
   const kept = a.submitted ? "everything, the PDFs you sent included" : "everything but the PDFs";
-  if (!confirm(`Delete ${label}?\n\nThis removes applications/${a.name}, its PDFs included. A snapshot is taken first (it keeps ${kept}).`)) return;
+  if (!await confirmDlg({ title: `Delete ${label}?`, body: `This removes applications/${a.name}, its PDFs included. A snapshot is taken first (it keeps ${kept}).`, ok: "Delete", danger: true })) return;
   try {
     const r = await api("DELETE", `/api/apps/${enc(a.name)}`);
     toast(`Deleted ${esc(label)}. Saved first as ${esc(r.backup)}.`, false, 7000);
@@ -322,7 +342,7 @@ function showSent(kind) {
 }
 
 async function unsubmit() {
-  if (!confirm("Unsubmit this application? You can edit and rebuild it again. If the PDFs here still match the ones you sent, the frozen copy is removed; otherwise it is kept in a dated folder.")) return;
+  if (!await confirmDlg({ title: "Unsubmit this application?", body: "You can edit and rebuild it again. If the PDFs here still match the ones you sent, the frozen copy is removed; otherwise it is kept in a dated folder.", ok: "Unsubmit" })) return;
   try {
     const r = await api("POST", `/api/apps/${enc(S.app.name)}/unsubmit`);
     toast(r.kept ? `Editable again. The PDFs you sent are kept in ${esc(r.kept)}.` : "Editable again.", false, 7000);
@@ -1438,7 +1458,7 @@ function renderDraftBox() {
 
 CLICK_ACTIONS["draft-start"] = async () => {
   if (S.conflict) return toast(CHOOSE_FIRST, true);
-  if (S.app.listing_spec?.drafted && !confirm("Redraft? This replaces the bullet choices, overrides and cover letter. A snapshot is taken first.")) return;
+  if (S.app.listing_spec?.drafted && !await confirmDlg({ title: "Redraft?", body: "This replaces the bullet choices, overrides and cover letter. A snapshot is taken first.", ok: "Redraft" })) return;
   if (S.app.job?.saved) {
     S.app.job = { ...S.app.job };
     delete S.app.job.saved;
@@ -2580,7 +2600,7 @@ document.addEventListener("click", async (e) => {
     const b = owner.bullets[Number(row.dataset.bi)];
     const used = M.usage[b.id] || [];
     if (used.length) return toast(`${esc(b.id)} is used by ${used.map(esc).join(", ")}. Untick it there first, then delete it here.`, true, 7000);
-    if (!confirm(`Delete bullet ${b.id}?\n\n${b.text}`)) return;
+    if (!await confirmDlg({ title: `Delete bullet ${b.id}?`, body: b.text, ok: "Delete", danger: true })) return;
     owner.bullets.splice(owner.bullets.indexOf(b), 1);
     for (const x of owner.bullets) if (x.variant_of === b.id) delete x.variant_of;
     M.exp.delete(b.id);
@@ -2621,7 +2641,7 @@ document.addEventListener("click", async (e) => {
     const single = kind === "positions" ? "position" : "project";
     const apps = [...new Set([...((M.used[single] || {})[owner.id] || []), ...(owner.bullets || []).flatMap((b) => M.usage[b.id] || [])])];
     if (apps.length) return toast(`${esc(ownerHead(kind, owner))} is used by ${apps.map(esc).join(", ")}. Remove it there first, then delete it here.`, true, 7000);
-    if (!confirm(`Delete ${ownerHead(kind, owner)} and its ${plural((owner.bullets || []).length, "bullet")}?`)) return;
+    if (!await confirmDlg({ title: `Delete ${ownerHead(kind, owner)}?`, body: `Its ${plural((owner.bullets || []).length, "bullet")} go with it.`, ok: "Delete", danger: true })) return;
     M.draft[kind].splice(M.draft[kind].indexOf(owner), 1);
     renderMasterBody();
   } else if (act === "add-item") {
@@ -2648,11 +2668,11 @@ document.addEventListener("click", async (e) => {
     const apps = list === "games" ? gameUsers(item) : list === "skills" ? (M.used["skill group"] || {})[item.group] || [] : [];
     const label = item.name || item.school || item.group;
     if (apps.length) return toast(`${esc(label)} is used by ${apps.map(esc).join(", ")}. Remove it there first, then delete it here.`, true, 7000);
-    if (label && !confirm(`Delete ${label}?`)) return;
+    if (label && !await confirmDlg({ title: `Delete ${label}?`, ok: "Delete", danger: true })) return;
     M.draft[list].splice(Number(box.dataset.i), 1);
     renderMasterBody();
   } else if (act === "discard") {
-    if (!confirm("Discard your unsaved master changes?")) return;
+    if (!await confirmDlg({ title: "Discard your unsaved master changes?", ok: "Discard", danger: true })) return;
     M.draft = clone(M.base);
     M.rawText = null;
     M.error = "";
@@ -2765,7 +2785,7 @@ async function takeSnapshot(label = "") {
 }
 
 async function restoreSnapshot(name) {
-  if (!confirm(`Restore ${name}?\n\nThis writes the snapshot's files over your current master.yaml, applications and templates. Tracking history stays as it is now, unless an application has none (a deleted one coming back). A snapshot of the current state is taken first.`)) return;
+  if (!await confirmDlg({ title: `Restore ${name}?`, body: "This writes the snapshot's files over your current master.yaml, applications and templates. Tracking history stays as it is now, unless an application has none (a deleted one coming back). A snapshot of the current state is taken first.", ok: "Restore", danger: true })) return;
   try {
     const r = await api("POST", `/api/snapshots/${enc(name)}/restore`);
     S.app = null;
