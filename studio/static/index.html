@@ -17,14 +17,14 @@
       <a href="#/snapshots" data-nav="snapshots">Snapshots</a>
     </nav>
     <span id="example-badge" class="pill warn" hidden>Example data</span>
-    <span id="home-badge" class="pill plain" hidden>Main checkout's data</span>
     <span class="grow"></span>
     <span id="status" class="muted"></span>
-    <button id="snap-btn" title="Zip master.yaml, every application and the templates into snapshots/">Take snapshot</button>
+    <span id="home-badge" class="data-note" hidden>Main checkout's data</span>
   </header>
   <main id="view"></main>
   <dialog id="send-dlg" class="dlg send-dlg" aria-labelledby="send-h"></dialog>
   <dialog id="gap-dlg" class="dlg" aria-labelledby="gap-h"></dialog>
+  <dialog id="confirm-dlg" class="dlg confirm-dlg" aria-labelledby="confirm-h"></dialog>
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="/static/app.js"></script>
   <script src="/static/tracker.js"></script>

@@ -3,6 +3,22 @@
 // tailor is saved to tailor.yaml (debounced) and the server answers with a fresh preview.
 
 const $ = (sel, el = document) => el.querySelector(sel);
+// The app's own yes/no dialog, used in place of the browser's confirm(). Resolves true on OK.
+// Cancel has focus, so Enter or Esc never confirms by accident.
+function confirmDlg({ title, body = "", ok = "OK", danger = false }) {
+  const dlg = $("#confirm-dlg");
+  dlg.innerHTML = `<form method="dialog">
+    <div class="dlg-hd"><h2 id="confirm-h">${esc(title)}</h2></div>
+    ${body ? `<p class="confirm-body">${esc(body)}</p>` : ""}
+    <div class="row dlg-ft"><span class="grow"></span><button value="cancel">Cancel</button>
+      <button value="ok" class="${danger ? "danger-fill" : "primary"}">${esc(ok)}</button></div></form>`;
+  dlg.returnValue = "";
+  return new Promise((resolve) => {
+    dlg.onclose = () => resolve(dlg.returnValue === "ok");
+    dlg.showModal();
+    $("[value=cancel]", dlg).focus();
+  });
+}
 const enc = encodeURIComponent;
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -74,21 +90,25 @@ const ON_OUTSIDE_EDIT = { blocked: () => false };
 // ---------- routing ----------
 
 let lastHash = location.hash;
-function route() {
+// Ask before leaving with unsaved work. The address goes back while the dialog is open, and
+// forward again only on Discard.
+async function leaveAnyway(opts) {
+  const target = location.hash;
+  history.replaceState(null, "", lastHash);
+  if (!await confirmDlg(opts)) return false;
+  history.replaceState(null, "", target);
+  return true;
+}
+
+async function route() {
   if (S.init.needs_master) return showFirstRun();
   const [a, b, c] = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   if (a !== "master" && lastHash.startsWith("#/master") && masterDirty()) {
-    if (!confirm("You have unsaved master changes. Leave and discard them?")) {
-      history.replaceState(null, "", lastHash);
-      return;
-    }
+    if (!await leaveAnyway({ title: "Leave the master?", body: "You have unsaved master changes. Leaving discards them.", ok: "Discard and leave", danger: true })) return;
     M.draft = null;
   }
   if (S.conflict && !(a === "app" && b === S.app?.name)) {
-    if (!confirm("Your latest edit is not saved because the file changed on disk. Leave and discard the edit?")) {
-      history.replaceState(null, "", lastHash);
-      return;
-    }
+    if (!await leaveAnyway({ title: "Leave this application?", body: "Your latest edit is not saved because the file changed on disk. Leaving discards the edit.", ok: "Discard and leave", danger: true })) return;
     dropUnsaved();
     S.conflict = null;
   }
@@ -110,7 +130,6 @@ function route() {
 
 // No master yet: nothing else in the app can load, so explain that and offer the demo as a start.
 function showFirstRun() {
-  $("#snap-btn").hidden = true;
   view(`<div class="page"><section class="card">
     <div class="hd"><h1>Welcome to DynamicResume</h1></div>
     <div class="bd stack">
@@ -133,7 +152,6 @@ function showFirstRun() {
 
 function masterAppeared() {
   S.init.needs_master = false;
-  $("#snap-btn").hidden = false;
   route();
 }
 
@@ -154,7 +172,7 @@ function pdfPill(pdfs) {
 async function deleteApp(a) {
   const label = [a.studio, a.role].filter(Boolean).join(", ") || a.name;
   const kept = a.submitted ? "everything, the PDFs you sent included" : "everything but the PDFs";
-  if (!confirm(`Delete ${label}?\n\nThis removes applications/${a.name}, its PDFs included. A snapshot is taken first (it keeps ${kept}).`)) return;
+  if (!await confirmDlg({ title: `Delete ${label}?`, body: `This removes applications/${a.name}, its PDFs included. A snapshot is taken first (it keeps ${kept}).`, ok: "Delete", danger: true })) return;
   try {
     const r = await api("DELETE", `/api/apps/${enc(a.name)}`);
     toast(`Deleted ${esc(label)}. Saved first as ${esc(r.backup)}.`, false, 7000);
@@ -273,7 +291,11 @@ async function showEditor(name, tab) {
   const kind = TABS[tab].preview;
   if (sub) return showSent(kind);
   renderPdfState();
-  $("#tpl").onchange = (e) => { t.template = e.target.value; queueSave(0); };
+  $("#tpl").onchange = (e) => {
+    t.template = e.target.value;
+    if (S.tab === "resume") renderResumeLeft();  // the Games section comes and goes with the template
+    queueSave(0);
+  };
   // Paper also changes the letter, whose preview a resume save does not refresh.
   $("#paper").onchange = (e) => { t.paper = e.target.value; delete S.previews.letter; queueSave(0); };
   $("#finalize").onclick = finalize;
@@ -322,7 +344,7 @@ function showSent(kind) {
 }
 
 async function unsubmit() {
-  if (!confirm("Unsubmit this application? You can edit and rebuild it again. If the PDFs here still match the ones you sent, the frozen copy is removed; otherwise it is kept in a dated folder.")) return;
+  if (!await confirmDlg({ title: "Unsubmit this application?", body: "You can edit and rebuild it again. If the PDFs here still match the ones you sent, the frozen copy is removed; otherwise it is kept in a dated folder.", ok: "Unsubmit" })) return;
   try {
     const r = await api("POST", `/api/apps/${enc(S.app.name)}/unsubmit`);
     toast(r.kept ? `Editable again. The PDFs you sent are kept in ${esc(r.kept)}.` : "Editable again.", false, 7000);
@@ -662,7 +684,7 @@ function reqsBlock() {
   const chips = reqs.map((r, i) => `<button class="chip ${covered[i] ? "ok" : ""} ${r.must ? "" : "nice"} ${focus === i ? "on" : ""}"
       data-act="req" data-i="${i}" title="${r.must ? "Required" : "Nice to have"}, ${covered[i] ? "covered" : "not covered"} by the selected bullets. Click to highlight bullets that fit.">
       ${covered[i] ? "✓ " : ""}${esc(r.text)}${r.must ? "" : " (nice)"}</button>`).join("");
-  return `<div class="reqs" style="margin-top:14px">
+  return `<div class="reqs">
     <div class="row"><span class="muted" style="font-size:12px">Listing requirements: ${covered.filter(Boolean).length} of ${reqs.length} covered</span>
       ${focus != null ? `<button class="ghost small" data-act="req" data-i="${focus}">Clear highlight</button>` : ""}</div>
     <div class="chips">${chips}</div>
@@ -686,11 +708,13 @@ function renderResumeLeft() {
         placeholder="${esc((m.basics || {}).headline || "Your title | two to four focus areas from the listing")}"></label>
     </div><div id="changes-slot"></div>`;
   html += reqsBlock() + unknownBlock();
-  if ((m.games || []).length) html += sec("Games", (t.template || S.init.default_template) === "resume-games" ? "" : "only resume-games shows this section") + gamesBlock();
-  html += sec("Experience", "drag to reorder (Alt+Up/Down from the keyboard), double-click a bullet to edit") +m.positions.map((p) => ownerBlock(p, "positions")).join("");
+  // resume-inline names each game on its role line and prints no Games section, so there is nothing to pick.
+  if ((m.games || []).length && (t.template || S.init.default_template) !== "resume-inline") html += sec("Games") + gamesBlock();
+  html += sec("Experience", "drag to reorder (Alt+Up/Down from the keyboard), double-click a bullet to edit", idsToggle()) + m.positions.map((p) => ownerBlock(p, "positions")).join("");
   if ((m.projects || []).length) html += sec("Personal projects", "selected projects print in this order") + projectOrder().map((p) => ownerBlock(p, "projects")).join("");
   html += sec("Skills", "click a skill to move it to the front of its line") + skillsBlock();
   left.innerHTML = html;
+  left.classList.toggle("show-ids", showIds());
   renderChanges();
   const ta = left.querySelector("textarea[data-edit]");
   if (ta) {
@@ -706,9 +730,14 @@ function projectOrder() {
   return [...on.map((id) => all.find((p) => p.id === id)).filter(Boolean), ...all.filter((p) => !on.includes(p.id))];
 }
 
-function sec(title, hint = "") {
-  return `<div class="sec"><h2>${esc(title)}</h2>${hint ? `<span class="faint" style="font-size:12px">${esc(hint)}</span>` : ""}</div>`;
+function sec(title, hint = "", extra = "") {
+  return `<div class="sec"><h2>${esc(title)}</h2>${hint ? `<span class="faint" style="font-size:12px">${esc(hint)}</span>` : ""}${extra}</div>`;
 }
+
+// Bullet ids and priorities are for working on the master, so they hide unless you ask for them.
+const showIds = () => pref.get("show-ids") === "1";
+const idsToggle = () => `<span class="grow"></span><button class="ghost small" data-act="show-ids" aria-pressed="${showIds()}"
+  title="Show each bullet's id and priority">Ids and priorities</button>`;
 
 // Ids in the tailor that the master does not have (an edit made outside the app). The build
 // stops on them, so each gets a row with a way out. A missing bullet sits in its position's list.
@@ -796,7 +825,7 @@ function bulletRow(b, kind, owner, isSel) {
     <div class="body">
       <div class="text" title="Double-click to edit">${esc(text)}</div>
       <div class="meta">
-        <code>${esc(b.id)}</code><span>p${b.priority ?? 3}</span><span>${esc((b.tags || []).join(", "))}</span>
+        <code class="dev">${esc(b.id)}</code><span class="dev">p${b.priority ?? 3}</span><span>${esc((b.tags || []).join(", "))}</span>
         ${ov != null ? `<span class="ov" title="Master text: ${esc(b.text)}">Edited for this application</span>` : ""}
         ${b.variant_of ? `<span title="Another version of ${esc(b.variant_of)}; the resume can use one of the two">variant of ${esc(b.variant_of)}</span>` : ""}
         ${b.short ? `<button class="ghost small short" data-act="short" aria-pressed="${useShort}" title="${useShort ? "Using the short text. Click for the full text." : `Use the short text: ${esc(b.short)}`}">Short</button>` : ""}
@@ -1050,6 +1079,12 @@ document.addEventListener("click", async (e) => {
 });
 
 const CLICK_ACTIONS = {};
+
+CLICK_ACTIONS["show-ids"] = (el) => {
+  pref.set("show-ids", showIds() ? "0" : "1");
+  $("#left").classList.toggle("show-ids", showIds());
+  el.setAttribute("aria-pressed", String(showIds()));
+};
 
 CLICK_ACTIONS["drop-missing"] = (el) => {
   const t = S.app.tailor;
@@ -1438,7 +1473,7 @@ function renderDraftBox() {
 
 CLICK_ACTIONS["draft-start"] = async () => {
   if (S.conflict) return toast(CHOOSE_FIRST, true);
-  if (S.app.listing_spec?.drafted && !confirm("Redraft? This replaces the bullet choices, overrides and cover letter. A snapshot is taken first.")) return;
+  if (S.app.listing_spec?.drafted && !await confirmDlg({ title: "Redraft?", body: "This replaces the bullet choices, overrides and cover letter. A snapshot is taken first.", ok: "Redraft" })) return;
   if (S.app.job?.saved) {
     S.app.job = { ...S.app.job };
     delete S.app.job.saved;
@@ -2580,7 +2615,7 @@ document.addEventListener("click", async (e) => {
     const b = owner.bullets[Number(row.dataset.bi)];
     const used = M.usage[b.id] || [];
     if (used.length) return toast(`${esc(b.id)} is used by ${used.map(esc).join(", ")}. Untick it there first, then delete it here.`, true, 7000);
-    if (!confirm(`Delete bullet ${b.id}?\n\n${b.text}`)) return;
+    if (!await confirmDlg({ title: `Delete bullet ${b.id}?`, body: b.text, ok: "Delete", danger: true })) return;
     owner.bullets.splice(owner.bullets.indexOf(b), 1);
     for (const x of owner.bullets) if (x.variant_of === b.id) delete x.variant_of;
     M.exp.delete(b.id);
@@ -2621,7 +2656,7 @@ document.addEventListener("click", async (e) => {
     const single = kind === "positions" ? "position" : "project";
     const apps = [...new Set([...((M.used[single] || {})[owner.id] || []), ...(owner.bullets || []).flatMap((b) => M.usage[b.id] || [])])];
     if (apps.length) return toast(`${esc(ownerHead(kind, owner))} is used by ${apps.map(esc).join(", ")}. Remove it there first, then delete it here.`, true, 7000);
-    if (!confirm(`Delete ${ownerHead(kind, owner)} and its ${plural((owner.bullets || []).length, "bullet")}?`)) return;
+    if (!await confirmDlg({ title: `Delete ${ownerHead(kind, owner)}?`, body: `Its ${plural((owner.bullets || []).length, "bullet")} go with it.`, ok: "Delete", danger: true })) return;
     M.draft[kind].splice(M.draft[kind].indexOf(owner), 1);
     renderMasterBody();
   } else if (act === "add-item") {
@@ -2648,11 +2683,11 @@ document.addEventListener("click", async (e) => {
     const apps = list === "games" ? gameUsers(item) : list === "skills" ? (M.used["skill group"] || {})[item.group] || [] : [];
     const label = item.name || item.school || item.group;
     if (apps.length) return toast(`${esc(label)} is used by ${apps.map(esc).join(", ")}. Remove it there first, then delete it here.`, true, 7000);
-    if (label && !confirm(`Delete ${label}?`)) return;
+    if (label && !await confirmDlg({ title: `Delete ${label}?`, ok: "Delete", danger: true })) return;
     M.draft[list].splice(Number(box.dataset.i), 1);
     renderMasterBody();
   } else if (act === "discard") {
-    if (!confirm("Discard your unsaved master changes?")) return;
+    if (!await confirmDlg({ title: "Discard your unsaved master changes?", ok: "Discard", danger: true })) return;
     M.draft = clone(M.base);
     M.rawText = null;
     M.error = "";
@@ -2765,7 +2800,7 @@ async function takeSnapshot(label = "") {
 }
 
 async function restoreSnapshot(name) {
-  if (!confirm(`Restore ${name}?\n\nThis writes the snapshot's files over your current master.yaml, applications and templates. Tracking history stays as it is now, unless an application has none (a deleted one coming back). A snapshot of the current state is taken first.`)) return;
+  if (!await confirmDlg({ title: `Restore ${name}?`, body: "This writes the snapshot's files over your current master.yaml, applications and templates. Tracking history stays as it is now, unless an application has none (a deleted one coming back). A snapshot of the current state is taken first.", ok: "Restore", danger: true })) return;
   try {
     const r = await api("POST", `/api/snapshots/${enc(name)}/restore`);
     S.app = null;
@@ -2838,7 +2873,6 @@ async function pollVersions() {
     b.title = `This checkout is a git worktree, so data and applications come from ${S.init.data_home}`;
   }
   document.title = S.init.example ? "DynamicResume (example)" : "DynamicResume";
-  $("#snap-btn").onclick = () => takeSnapshot();
   S.versions = await api("GET", "/api/versions");
   window.addEventListener("hashchange", route);
   route();
