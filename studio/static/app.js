@@ -712,10 +712,11 @@ function renderResumeLeft() {
   html += reqsBlock() + unknownBlock();
   // resume-inline names each game on its role line and prints no Games section, so there is nothing to pick.
   if ((m.games || []).length && (t.template || S.init.default_template) !== "resume-inline") html += sec("Games") + gamesBlock();
-  html += sec("Experience", "drag to reorder (Alt+Up/Down from the keyboard), double-click a bullet to edit") +m.positions.map((p) => ownerBlock(p, "positions")).join("");
+  html += sec("Experience", "drag to reorder (Alt+Up/Down from the keyboard), double-click a bullet to edit", idsToggle()) + m.positions.map((p) => ownerBlock(p, "positions")).join("");
   if ((m.projects || []).length) html += sec("Personal projects", "selected projects print in this order") + projectOrder().map((p) => ownerBlock(p, "projects")).join("");
   html += sec("Skills", "click a skill to move it to the front of its line") + skillsBlock();
   left.innerHTML = html;
+  left.classList.toggle("show-ids", showIds());
   renderChanges();
   const ta = left.querySelector("textarea[data-edit]");
   if (ta) {
@@ -731,9 +732,14 @@ function projectOrder() {
   return [...on.map((id) => all.find((p) => p.id === id)).filter(Boolean), ...all.filter((p) => !on.includes(p.id))];
 }
 
-function sec(title, hint = "") {
-  return `<div class="sec"><h2>${esc(title)}</h2>${hint ? `<span class="faint" style="font-size:12px">${esc(hint)}</span>` : ""}</div>`;
+function sec(title, hint = "", extra = "") {
+  return `<div class="sec"><h2>${esc(title)}</h2>${hint ? `<span class="faint" style="font-size:12px">${esc(hint)}</span>` : ""}${extra}</div>`;
 }
+
+// Bullet ids and priorities are for working on the master, so they hide unless you ask for them.
+const showIds = () => pref.get("show-ids") === "1";
+const idsToggle = () => `<span class="grow"></span><button class="ghost small" data-act="show-ids" aria-pressed="${showIds()}"
+  title="Show each bullet's id and priority">Ids and priorities</button>`;
 
 // Ids in the tailor that the master does not have (an edit made outside the app). The build
 // stops on them, so each gets a row with a way out. A missing bullet sits in its position's list.
@@ -821,7 +827,7 @@ function bulletRow(b, kind, owner, isSel) {
     <div class="body">
       <div class="text" title="Double-click to edit">${esc(text)}</div>
       <div class="meta">
-        <code>${esc(b.id)}</code><span>p${b.priority ?? 3}</span><span>${esc((b.tags || []).join(", "))}</span>
+        <code class="dev">${esc(b.id)}</code><span class="dev">p${b.priority ?? 3}</span><span>${esc((b.tags || []).join(", "))}</span>
         ${ov != null ? `<span class="ov" title="Master text: ${esc(b.text)}">Edited for this application</span>` : ""}
         ${b.variant_of ? `<span title="Another version of ${esc(b.variant_of)}; the resume can use one of the two">variant of ${esc(b.variant_of)}</span>` : ""}
         ${b.short ? `<button class="ghost small short" data-act="short" aria-pressed="${useShort}" title="${useShort ? "Using the short text. Click for the full text." : `Use the short text: ${esc(b.short)}`}">Short</button>` : ""}
@@ -1075,6 +1081,12 @@ document.addEventListener("click", async (e) => {
 });
 
 const CLICK_ACTIONS = {};
+
+CLICK_ACTIONS["show-ids"] = (el) => {
+  pref.set("show-ids", showIds() ? "0" : "1");
+  $("#left").classList.toggle("show-ids", showIds());
+  el.setAttribute("aria-pressed", String(showIds()));
+};
 
 CLICK_ACTIONS["drop-missing"] = (el) => {
   const t = S.app.tailor;

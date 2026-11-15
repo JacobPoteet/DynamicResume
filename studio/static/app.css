@@ -383,6 +383,7 @@ button.ghost.quiet-danger:hover { color: var(--bad); background: var(--bad-soft)
 /* Stays at the top of the left pane while you scroll the bullets (top cancels the pane's padding). */
 .reqs { position: sticky; top: -14px; z-index: 3; margin: 14px 0; padding: 8px 0; background: var(--bg);
   border-bottom: 1px solid var(--line); max-height: 32vh; overflow-y: auto; }
+#left:not(.show-ids) .b .dev { display: none; }
 .reqs .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .chip {
   font-size: 12px; padding: 3px 9px; border-radius: 99px; border: 1px solid transparent; cursor: pointer;
