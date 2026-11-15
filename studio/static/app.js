@@ -130,7 +130,6 @@ async function route() {
 
 // No master yet: nothing else in the app can load, so explain that and offer the demo as a start.
 function showFirstRun() {
-  $("#snap-btn").hidden = true;
   view(`<div class="page"><section class="card">
     <div class="hd"><h1>Welcome to DynamicResume</h1></div>
     <div class="bd stack">
@@ -153,7 +152,6 @@ function showFirstRun() {
 
 function masterAppeared() {
   S.init.needs_master = false;
-  $("#snap-btn").hidden = false;
   route();
 }
 
@@ -2875,7 +2873,6 @@ async function pollVersions() {
     b.title = `This checkout is a git worktree, so data and applications come from ${S.init.data_home}`;
   }
   document.title = S.init.example ? "DynamicResume (example)" : "DynamicResume";
-  $("#snap-btn").onclick = () => takeSnapshot();
   S.versions = await api("GET", "/api/versions");
   window.addEventListener("hashchange", route);
   route();
