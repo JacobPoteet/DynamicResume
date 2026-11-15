@@ -258,6 +258,13 @@ button[aria-pressed=true] { background: var(--accent-soft); border-color: var(--
 .send-name .faint { font-weight: 400; font-size: 12px; }
 .send-copied { color: var(--good); font-size: 12px; }
 
+.prep-dlg { width: min(680px, calc(100vw - 32px)); }
+.prep-dlg .pp-body { max-height: 60vh; overflow-y: auto; }
+.prep-dlg h3 { font-size: 13px; margin: 14px 0 6px; }
+.pp-list { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
+.pp-list p { margin: 2px 0 0; color: var(--muted); }
+.pp-ids { margin-top: 3px; font-size: 11px; color: var(--muted); }
+.pp-meta { font-size: 12px; margin: 0; }
 .hist-dlg { width: min(600px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border-radius: 10px; }
 .hist-dlg[open] { display: flex; flex-direction: column; }
 .dr-hd { display: flex; align-items: flex-start; gap: 10px; padding: 16px 18px 12px; border-bottom: 1px solid var(--line); }
