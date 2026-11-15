@@ -293,7 +293,11 @@ async function showEditor(name, tab) {
   const kind = TABS[tab].preview;
   if (sub) return showSent(kind);
   renderPdfState();
-  $("#tpl").onchange = (e) => { t.template = e.target.value; queueSave(0); };
+  $("#tpl").onchange = (e) => {
+    t.template = e.target.value;
+    if (S.tab === "resume") renderResumeLeft();  // the Games section comes and goes with the template
+    queueSave(0);
+  };
   // Paper also changes the letter, whose preview a resume save does not refresh.
   $("#paper").onchange = (e) => { t.paper = e.target.value; delete S.previews.letter; queueSave(0); };
   $("#finalize").onclick = finalize;
@@ -682,7 +686,7 @@ function reqsBlock() {
   const chips = reqs.map((r, i) => `<button class="chip ${covered[i] ? "ok" : ""} ${r.must ? "" : "nice"} ${focus === i ? "on" : ""}"
       data-act="req" data-i="${i}" title="${r.must ? "Required" : "Nice to have"}, ${covered[i] ? "covered" : "not covered"} by the selected bullets. Click to highlight bullets that fit.">
       ${covered[i] ? "✓ " : ""}${esc(r.text)}${r.must ? "" : " (nice)"}</button>`).join("");
-  return `<div class="reqs" style="margin-top:14px">
+  return `<div class="reqs">
     <div class="row"><span class="muted" style="font-size:12px">Listing requirements: ${covered.filter(Boolean).length} of ${reqs.length} covered</span>
       ${focus != null ? `<button class="ghost small" data-act="req" data-i="${focus}">Clear highlight</button>` : ""}</div>
     <div class="chips">${chips}</div>
@@ -706,7 +710,8 @@ function renderResumeLeft() {
         placeholder="${esc((m.basics || {}).headline || "Your title | two to four focus areas from the listing")}"></label>
     </div><div id="changes-slot"></div>`;
   html += reqsBlock() + unknownBlock();
-  if ((m.games || []).length) html += sec("Games", (t.template || S.init.default_template) === "resume-games" ? "" : "only resume-games shows this section") + gamesBlock();
+  // resume-inline names each game on its role line and prints no Games section, so there is nothing to pick.
+  if ((m.games || []).length && (t.template || S.init.default_template) !== "resume-inline") html += sec("Games") + gamesBlock();
   html += sec("Experience", "drag to reorder (Alt+Up/Down from the keyboard), double-click a bullet to edit") +m.positions.map((p) => ownerBlock(p, "positions")).join("");
   if ((m.projects || []).length) html += sec("Personal projects", "selected projects print in this order") + projectOrder().map((p) => ownerBlock(p, "projects")).join("");
   html += sec("Skills", "click a skill to move it to the front of its line") + skillsBlock();
