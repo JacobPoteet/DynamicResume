@@ -746,6 +746,9 @@ class Workspace:
         if not build.submission(app):
             raise BuildError(f"{name} has not been sent yet. Move it to Applied first, which marks it submitted.")
         path, doc = self._events_doc(app)
+        if (event or {}).get("stage") == "applied" and self.track(app)["column"] == "applied":
+            raise BuildError(f"{name} is already in Applied. An applied entry only moves it back there "
+                             "from a later or closed stage.")
         e = tracking.clean_event(event, tracking.next_round(plain(doc["events"])))
         doc["events"].append(CommentedMap(self._yaml_event(e)))
         path.write_text(rt_dump(doc), encoding="utf-8", newline="\n")

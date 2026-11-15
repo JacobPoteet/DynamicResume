@@ -111,6 +111,13 @@ def test_a_draft_moves_to_applied_by_being_submitted(ws):
     assert r["index"] == 0
 
 
+def test_an_applied_entry_only_moves_an_application_back(ws):
+    with pytest.raises(build.BuildError, match="already in Applied"):
+        ws.add_event(QUARRY, ev("2026-11-05", "applied"))
+    assert ws.track(ws.apps_dir / NORTHWIND)["column"] == "rejected"
+    assert ws.add_event(NORTHWIND, ev("2026-11-05", "applied"))["track"]["column"] == "applied"
+
+
 def test_events_are_added_numbered_edited_and_deleted_on_a_submitted_application(ws):
     app = ws.apps_dir / HARBOR
     with pytest.raises(build.BuildError, match="Unsubmit"):

@@ -445,6 +445,10 @@ function openEvent(a, opts = {}) {
   if (ev.stage === "interview" && !editing) ev.round = (t.round || 0) + 1;
   const choices = drafting ? ["applied"] : editing && ev.stage === "applied" ? ["applied"]
     : ["screen", "interview", "offer", "rejected", "ghosted", "withdrew", "note"];
+  // A move back to Applied (a card dropped on that column) is not in the menu. Without it the
+  // menu would show Screen while the dialog saved Applied.
+  if (!choices.includes(ev.stage)) choices.unshift(ev.stage);
+  const closed = CLOSED.includes(t.column);
   const dlg = $("#ev-dlg");
   const draw = () => {
     const s = ev.stage;
@@ -463,6 +467,7 @@ function openEvent(a, opts = {}) {
             <button type="button" class="small" data-day="-1">Yesterday</button>
             <input type="date" id="ev-date" value="${esc(ev.date)}" aria-label="Date" required>
           </div></div>
+        ${closed && !editing && s !== "note" && !CLOSED.includes(s) ? `<div class="hint">This reopens the application, which is in ${esc(COL_LABEL[t.column])} now.</div>` : ""}
         ${s === "ghosted" ? `<div class="hint">Ghosted counts as a rejection but is left out of time-to-rejection, since it has no real end date.</div>` : ""}
         ${s === "screen" || s === "interview" ? `<div class="field"><span id="ev-sched">Scheduled for (optional)</span>
           <div class="row" role="group" aria-labelledby="ev-sched">
