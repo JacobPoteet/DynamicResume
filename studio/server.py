@@ -20,6 +20,7 @@ import build
 from build import HOME, ROOT, BuildError
 from studio.draft import Drafts, claude_path
 from studio import gaps as gap_tools
+from studio import prep as prep_tools
 from studio.fit import STOP, fit_app
 from studio.workspace import Workspace
 
@@ -292,6 +293,17 @@ def put_follow_up(s, body, q, name):
 def event_calendar(s, body, q, name, index):
     text, filename = s.ws.event_calendar(name, int(index))
     return Download(text, "text/calendar; charset=utf-8", filename)
+
+
+@route("GET", "/api/apps/([^/]+)/prep")
+def get_prep(s, body, q, name):
+    return {"prep": prep_tools.load(s.ws, name)}
+
+
+# Runs headless Claude (a few minutes), so outside LOCK. It writes only the application's prep.yaml.
+@route("POST", "/api/apps/([^/]+)/prep")
+def post_prep(s, body, q, name):
+    return prep_tools.write(s.ws, name, body.get("index"))
 
 
 @route("GET", "/api/calendar")

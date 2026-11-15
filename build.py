@@ -14,6 +14,7 @@
   python build.py new --url <posting link> ["<studio>" "<role>"]   import a Greenhouse, Lever or Ashby posting
   python build.py draft <app>          draft it with headless Claude Code, as the app does
   python build.py fit <app> [--report]   fit the resume to one page, or suggest bullets when it has room
+  python build.py prep <app> [--round N] [--show]   an interview prep sheet and thank-you email, by headless Claude
   add --example to use examples/ (the public demo data) instead of your own
 
 In a linked git worktree, your data (data/, applications/, Local/, snapshots/) is read from
@@ -916,6 +917,10 @@ def main():
     d = sub.add_parser("draft", parents=[common], help="draft an application with headless Claude Code")
     d.add_argument("target")
     d.add_argument("--no-build", action="store_true", help="do not build the PDFs after drafting")
+    r = sub.add_parser("prep", parents=[common], help="write an interview prep sheet and thank-you email with headless Claude")
+    r.add_argument("target")
+    r.add_argument("--round", type=int, help="the interview round to prepare for (default the latest screen or interview)")
+    r.add_argument("--show", action="store_true", help="print the saved sheet instead of writing a new one")
     f = sub.add_parser("fit", parents=[common], help="fit a resume to one page, or suggest bullets when it has room")
     f.add_argument("target")
     f.add_argument("--report", action="store_true", help="only say what it would change; write nothing")
@@ -948,6 +953,27 @@ def main():
             return
         if args.cmd == "track":
             print_track(example, args)
+            return
+        if args.cmd == "prep":
+            from studio import prep
+            from studio.workspace import Workspace
+            ws, name = Workspace(example), find_app(args.target, example).name
+            if args.show:
+                data = prep.load(ws, name)
+                print(prep.as_text(data) if data else f"{name} has no prep sheet yet. Run without --show to write one.")
+                return
+            print("Asking Claude for a prep sheet (this takes a few minutes)...")
+            index = None
+            if args.round is not None:
+                index = next((i for i, e in enumerate(ws.events(ws.app_dir(name)))
+                              if e.get("stage") == "interview" and e.get("round") == args.round), None)
+                if index is None:
+                    raise BuildError(f"{name} has no interview round {args.round}")
+            res = prep.write(ws, name, index)
+            print(prep.as_text(res["prep"]))
+            for w in res["warnings"]:
+                print(f"WARNING: {w}")
+            print(f"Saved to {rel(ws.app_dir(name) / prep.FILE)}. Nothing was sent.")
             return
         if args.cmd == "new":
             from studio.workspace import Workspace
