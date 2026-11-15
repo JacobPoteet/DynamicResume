@@ -28,6 +28,7 @@ python build.py snapshot [label]     # zip master, applications, templates, Loca
 python build.py submit <app> [--date YYYY-MM-DD]   # freeze the PDFs as sent (no rebuild)
 python build.py unsubmit <app>       # make it editable again
 python build.py track <app> [stage] [--date --note --scheduled --format --length --with "Name, Role"]   # log what happened after sending; no stage prints the history
+python build.py prep <app> [--round N] [--show]   # headless Claude prep sheet for the latest (or that round's) interview; --show prints the saved one
 python build.py build-all --example  # --example (before or after the subcommand) uses examples/
 ```
 

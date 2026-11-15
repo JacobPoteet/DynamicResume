@@ -65,7 +65,8 @@ async function showHome(mode = "board") {
   </div>
   <dialog id="new-dlg" class="dlg" aria-labelledby="new-h">${newAppForm()}</dialog>
   <dialog id="ev-dlg" class="dlg"></dialog>
-  <dialog id="hist-dlg" class="hist-dlg" aria-labelledby="hist-h"></dialog>`);
+  <dialog id="hist-dlg" class="hist-dlg" aria-labelledby="hist-h"></dialog>
+  <dialog id="prep-dlg" class="dlg prep-dlg" aria-labelledby="prep-h"></dialog>`);
   $("#new-app").onclick = openNewApp;
   wireFilters();
   $("#na-create").onclick = () => createApp(false);
@@ -1059,6 +1060,7 @@ function renderHistory() {
   for (const e of t.events) {
     rows.push(row(e.date, `st-${EV_COLUMN[e.stage] || "note"}`, `${EV_LABEL[e.stage]}${e.round ? ` · round ${e.round}` : ""}`, eventDetail(e),
       `${e.stage === "interview" && eventStarted(e) ? `<button class="small h-how" data-how="${e.i}" aria-label="How it went: ${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))}">${e.debrief ? "Edit debrief" : "How it went"}</button>` : ""}
+       ${["screen", "interview"].includes(e.stage) && !CLOSED.includes(t.column) ? `<button class="small h-how" data-prep="${e.i}" aria-label="Prep sheet: ${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))}">Prep sheet</button>` : ""}
        <button class="ghost small h-edit" data-edit="${e.i}" aria-label="Edit ${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))}">Edit</button>
        ${e.scheduled ? `<a class="h-cal" href="/api/apps/${enc(a.name)}/events/${e.i}/calendar" download aria-label="Add ${EV_LABEL[e.stage]} on ${esc(fmtDay(e.date))} to a calendar">Calendar</a>` : ""}`));
   }
@@ -1098,12 +1100,99 @@ function renderHistory() {
     if (b.dataset.act === "note") return openEvent(a, { stage: "note" });
     if (b.dataset.act === "follow") return openFollowUp(a);
     if (b.dataset.how) return openDebrief(a, t.events.find((x) => String(x.i) === b.dataset.how));
+    if (b.dataset.prep) return openPrep(a, t.events.find((x) => String(x.i) === b.dataset.prep));
     if (b.dataset.act === "delete") return deleteApp(a);  // closes this once the board reloads without it
     if (b.dataset.edit) {
       const ev = t.events.find((x) => String(x.i) === b.dataset.edit);
       return openEvent(a, { index: ev.i, event: ev });
     }
   };
+}
+
+// ----- interview prep sheet -----
+
+// One sheet per application (prep.yaml). Opening it for another interview shows the saved one,
+// says which interview it was for, and offers to write one for this interview instead.
+const PREP = { app: null, ev: null, sheet: null, busy: false, err: "", warnings: [] };
+
+async function openPrep(a, ev) {
+  Object.assign(PREP, { app: a, ev, sheet: null, busy: false, err: "", warnings: [], loading: true });
+  const dlg = $("#prep-dlg");
+  renderPrep();
+  if (!dlg.open) dlg.showModal();
+  try {
+    PREP.sheet = (await api("GET", `/api/apps/${enc(a.name)}/prep`)).prep;
+  } catch (e) {
+    PREP.err = e.message;
+  }
+  PREP.loading = false;
+  renderPrep();
+}
+
+const prepLabel = (f) => `${EV_LABEL[f.stage] || f.stage}${f.round ? ` round ${f.round}` : ""}`;
+const prepIsFor = (f, ev) => !!f && f.stage === ev.stage && String(f.date) === String(ev.date) && (f.round ?? null) === (ev.round ?? null);
+
+function renderPrep() {
+  const { app: a, ev, sheet, busy } = PREP;
+  const dlg = $("#prep-dlg");
+  const mine = prepIsFor(sheet?.for, ev);
+  const write = !S.init.claude ? `<span class="muted">Writing a sheet needs the claude command on PATH.</span>`
+    : `<button class="${mine ? "" : "primary"}" id="pp-write" ${busy ? "disabled" : ""}>${busy ? "Writing…" : mine ? "Write it again" : "Write with Claude"}</button>`;
+  const other = sheet && !mine ? `<div class="hint">This sheet is for the ${esc(prepLabel(sheet.for).toLowerCase())} on ${esc(fmtDay(sheet.for.date))}. Writing one for this ${esc(prepLabel(ev).toLowerCase())} replaces it.</div>` : "";
+  const list = (items) => `<ul class="pp-list">${items.join("")}</ul>`;
+  const body = !sheet ? (PREP.loading ? `<div class="empty"><span class="spinner"></span></div>`
+      : `<p class="muted">Claude reads the listing, resume and letter as you sent them, your studio notes and this interview's details, then lists likely questions with the bullets that answer them, what your master cannot back up, questions to ask, and a thank-you email. Nothing is sent.</p>`)
+    : `<p class="faint pp-meta">Written ${esc(sheet.written || "")}</p>
+      <h3>Likely questions</h3>
+      ${list((sheet.questions || []).map((q) => `<li><b>${esc(q.q)}</b>${q.points ? `<p>${esc(q.points)}</p>` : ""}${q.bullets?.length ? `<div class="pp-ids">${q.bullets.map((id) => `<code>${esc(id)}</code>`).join(" ")}</div>` : ""}</li>`))}
+      ${sheet.gaps?.length ? `<h3>What your master cannot back up</h3>${list(sheet.gaps.map((g) => `<li><b>${esc(g.text)}</b>${g.answer ? `<p>${esc(g.answer)}</p>` : ""}</li>`))}` : ""}
+      ${sheet.ask_them?.length ? `<h3>Questions to ask them</h3>${list(sheet.ask_them.map((q) => `<li>${esc(q)}</li>`))}` : ""}
+      ${sheet.email?.body ? `<h3>Thank-you email</h3>
+        <label class="field">Subject<span class="row"><input id="pp-subject" class="grow" readonly value="${esc(sheet.email.subject || "")}"><button class="small" data-copy-from="#pp-subject">Copy</button></span></label>
+        <label class="field">Body<textarea id="pp-body" rows="8" readonly>${esc(sheet.email.body)}</textarea></label>
+        <div class="row"><span class="grow"></span><button class="small" data-copy-from="#pp-body">Copy body</button></div>` : ""}`;
+  dlg.innerHTML = `<div class="dlg-hd"><h2 id="prep-h">Prep sheet: ${esc(prepLabel(ev))}</h2><span class="muted">${esc(appLabel(a))} · ${esc(fmtDay(ev.date))}</span></div>
+    <div class="stack">
+      ${other}
+      ${busy ? `<div class="hint"><span class="spinner"></span> Claude is reading the application. This takes a few minutes.</div>` : ""}
+      ${PREP.err ? `<div class="ev-err" role="alert">${esc(PREP.err)}</div>` : ""}
+      ${PREP.warnings.map((w) => `<span class="pill warn">${esc(w)}</span>`).join(" ")}
+      <div class="pp-body">${body}</div>
+      <div class="row dlg-ft"><span class="grow"></span>${write}<button id="pp-close">Close</button></div>
+    </div>`;
+  $("#pp-close", dlg).onclick = () => dlg.close();
+  if ($("#pp-write", dlg)) $("#pp-write", dlg).onclick = writePrep;
+  dlg.querySelectorAll("[data-copy-from]").forEach((b) => (b.onclick = (e) => { e.preventDefault(); copyPrep(b); }));
+}
+
+async function writePrep() {
+  if (PREP.sheet && !await confirmDlg({ title: "Replace the prep sheet?", body: `It replaces the sheet for the ${prepLabel(PREP.sheet.for).toLowerCase()} on ${fmtDay(PREP.sheet.for.date)}.`, ok: "Replace" })) return;
+  const app = PREP.app;
+  Object.assign(PREP, { busy: true, err: "", warnings: [] });
+  renderPrep();
+  try {
+    const r = await api("POST", `/api/apps/${enc(app.name)}/prep`, { index: PREP.ev.i });
+    if (PREP.app !== app) return;  // the dialog moved on to another application meanwhile
+    PREP.sheet = r.prep;
+    PREP.warnings = r.warnings || [];
+  } catch (e) {
+    PREP.err = e.message;
+  }
+  PREP.busy = false;
+  if ($("#prep-dlg").open) renderPrep();
+}
+
+async function copyPrep(btn) {
+  const field = $(btn.dataset.copyFrom, $("#prep-dlg"));
+  try {
+    await navigator.clipboard.writeText(field.value);
+    const was = btn.textContent;
+    btn.textContent = "Copied";
+    setTimeout(() => (btn.textContent = was), 1500);
+  } catch {
+    field.focus();  // no clipboard access: select it so Ctrl+C takes it
+    field.select();
+  }
 }
 
 // ----- list -----
